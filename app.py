@@ -16,11 +16,10 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 # -----------------------------------------------------------------------------
 SENHA_GERAL = "Bks2026@"
 
-# Administradores com Perfil Destaque
 ADMINISTRADORES = {
-    "flavia.godoi@bks.com.br": {"nome": "Flávia Godoi", "perfil": "Administrador Compliance"},
-    "neto.duarte@bks.com.br": {"nome": "Neto Duarte", "perfil": "Administrador Compliance"},
-    "thaina.oliveira@bks.com.br": {"nome": "Thainá de Oliveira", "perfil": "Administrador Compliance"}
+    "flavia.godoi@bks.com.br": {"nome": "Flávia Godoi"},
+    "neto.duarte@bks.com.br": {"nome": "Neto Duarte"},
+    "thaina.oliveira@bks.com.br": {"nome": "Thainá de Oliveira"}
 }
 
 st.set_page_config(
@@ -55,6 +54,14 @@ st.markdown("""
         background-color: #003366;
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
+    /* Estilo para links de consulta externa */
+    .link-card {
+        background-color: #ffffff;
+        border: 1px solid #d0d7de;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -64,7 +71,7 @@ if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
 
 # -----------------------------------------------------------------------------
-# 🔑 TELA DE LOGIN FLEXÍVEL (ADMINISTRADORES E DEMAIS FUNCIONÁRIOS)
+# 🔑 TELA DE LOGIN FLEXÍVEL
 # -----------------------------------------------------------------------------
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
@@ -83,12 +90,11 @@ if not st.session_state.autenticado:
                 if not email_digitado:
                     email_digitado = "operacao@bks.com.br"
                 
-                # Identifica se é um dos Administradores ou Funcionário Geral
                 if email_digitado in ADMINISTRADORES:
                     dados_user = ADMINISTRADORES[email_digitado]
                 else:
                     nome_formatado = email_digitado.split("@")[0].replace(".", " ").title()
-                    dados_user = {"nome": nome_formatado, "perfil": "Analista / Operador BKS"}
+                    dados_user = {"nome": nome_formatado}
                 
                 st.session_state.autenticado = True
                 st.session_state.usuario_logado = dados_user
@@ -99,7 +105,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 🛡️ BARRA LATERAL (SIDEBAR) COM DADOS DO USUÁRIO LOGADO
+# 🛡️ BARRA LATERAL (SIDEBAR)
 # -----------------------------------------------------------------------------
 user_info = st.session_state.usuario_logado
 
@@ -114,7 +120,13 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(f"👤 **Nome:** {user_info['nome']}")
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
-    st.markdown(f"🔐 **Perfil:** {user_info['perfil']}")
+    st.markdown("---")
+    
+    # CAIXA DE CONSULTAS EXTERNAS (RECEITA FEDERAL)
+    st.markdown("### 🏛️ Consultas Receita Federal")
+    st.link_button("📄 Consulta CPF (Receita)", "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp", use_container_width=True)
+    st.link_button("🏢 Consulta CNPJ (Receita)", "https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva/cnpjreva_solicitacao.asp", use_container_width=True)
+    
     st.markdown("---")
     
     if st.button("🔒 Sair do Sistema", use_container_width=True):
@@ -400,7 +412,7 @@ if btn_pesquisar:
                 ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
             ])
 
-            alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com las tratativas de seguro." if STATUS_PEP == "SIM" else None
+            alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com as tratativas de seguro." if STATUS_PEP == "SIM" else None
 
             make_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
                 ("NÍVEL DE RISCO FINAL", RISCO_FINAL, "RISCO_FINAL"),
