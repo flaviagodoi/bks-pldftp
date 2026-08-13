@@ -1,6 +1,7 @@
 import streamlit as st
 import io, os
 from datetime import datetime
+from PIL import Image as PILImage
 from ddgs import DDGS
 
 # ReportLab - Gerador Vetorial Profissional de PDF
@@ -8,10 +9,10 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🔒 ACESSO RESTRITO
+# 🔒 ACESSO RESTRITO (SENHA DA BKS)
 # -----------------------------------------------------------------------------
 SENHA_ACESSO = "Bks2026@"
 
@@ -34,7 +35,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 🛡️ PAINEL PRINCIPAL
+# 🛡️ PAINEL PRINCIPAL DE CONSULTA
 # -----------------------------------------------------------------------------
 st.title("🛡️ Painel de Consulta PLD/FTP")
 st.caption("BKS Corretora de Seguros & BKS Re Corretora de Resseguros")
@@ -48,53 +49,50 @@ st.markdown("---")
 nome_input = st.text_input("👉 Nome Completo do Pesquisado")
 cpf_input = st.text_input("👉 CPF do Pesquisado")
 
+# Opção de sobreposição manual para garantir enquadramento PEP quando necessário
+pep_manual = st.checkbox("⚠️ Forçar enquadramento como PEP / Agente Político (Ajuste Manual)")
+
 if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
     if not nome_input.strip() or not cpf_input.strip():
         st.warning("⚠️ Por favor, preencha o Nome e o CPF antes de continuar.")
     else:
         with st.spinner("🔎 Vasculhando portais de transparência e bases abertas..."):
             
-            # 1. BUSCA WEB
-            query = f'"{nome_input}" político OR ministro OR prefeito OR deputado OR senador OR juiz OR STF OR tribunal'
+            # 1. BUSCA WEB EXPANDIDA
+            query = f'"{nome_input}" político OR vice-prefeito OR prefeito OR deputado OR senador OR juiz OR ministro OR vereador OR secretário OR candidato'
             res_web = ""
             try:
                 with DDGS() as ddgs:
-                    results = [r for r in ddgs.text(query, max_results=6)]
+                    results = [r for r in ddgs.text(query, max_results=8)]
                     for r in results:
                         res_web += f"{r.get('title', '')} {r.get('body', '')}\n"
             except Exception:
                 res_web = "Busca concluída."
 
-            # 2. LÓGICA DE DADOS
+            # 2. ENQUADRAMENTO E DADOS
             texto_l = res_web.lower()
+            termos_pep = ["vice-prefeito", "prefeito", "ministro", "stf", "deputado", "senador", "governador", "juiz", "desembargador", "secretário", "vereador"]
             
-            if "stf" in texto_l or "supremo tribunal" in texto_l or "ministro" in texto_l:
-                cargo_detectado = "Ministro / Magistrado"
-                orgao_detectado = "Poder Judiciário / Corte Superior (STF/STJ)"
-                detalhe_cargo = "Cargo de Alta Relevância Pública e Notório Saber"
-                is_pep = True
-            elif "senador" in texto_l or "deputado" in texto_l:
-                cargo_detectado = "Parlamentar (Senador/Deputado)"
-                orgao_detectado = "Poder Legislativo (Congresso Nacional)"
-                detalhe_cargo = "Agente Político Eletivo"
-                is_pep = True
-            elif "prefeito" in texto_l or "governador" in texto_l:
-                cargo_detectado = "Chefe do Executivo (Prefeito/Governador)"
-                orgao_detectado = "Poder Executivo Estadual/Municipal"
-                detalhe_cargo = "Gestor Público de Mandato Eletivo"
-                is_pep = True
-            elif "juiz" in texto_l or "desembargador" in texto_l:
-                cargo_detectado = "Magistrado (Juiz/Desembargador)"
-                orgao_detectado = "Poder Judiciário / Tribunal de Justiça"
-                detalhe_cargo = "Membro do Judiciário de Carreira"
-                is_pep = True
-            else:
-                cargo_detectado = "Nenhum cargo público detectado"
-                orgao_detectado = "Não aplicável / Sem vínculo público"
-                detalhe_cargo = "Sem registro em bases de agentes públicos"
-                is_pep = False
+            detec_pep = any(term in texto_l for term in termos_pep) or pep_manual
+            
+            if detec_pep:
+                if "vice-prefeito" in texto_l or "prefeito" in texto_l:
+                    cargo_detectado = "Ex-Vice-Prefeito / Agente Político"
+                    orgao_detectado = "Poder Executivo Municipal"
+                    detalhe_cargo = "Gestor Público de Mandato Eletivo"
+                elif "ministro" in texto_l or "stf" in texto_l:
+                    cargo_detectado = "Ministro / Magistrado"
+                    orgao_detectado = "Poder Judiciário / Corte Superior"
+                    detalhe_cargo = "Cargo de Alta Relevância Pública"
+                elif "deputado" in texto_l or "senador" in texto_l:
+                    cargo_detectado = "Parlamentar (Senador/Deputado)"
+                    orgao_detectado = "Poder Legislativo"
+                    detalhe_cargo = "Agente Político Eletivo"
+                else:
+                    cargo_detectado = "Agente Político / Função Pública Exposta"
+                    orgao_detectado = "Administração Pública"
+                    detalhe_cargo = "Histórico ou Atuação Política Identificada"
 
-            if is_pep:
                 STATUS_PEP = "SIM"
                 PEP_VINCULO = "NÃO CONSTA"
                 CARGOS_EXERCIDOS = cargo_detectado
@@ -103,9 +101,9 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 RISCO_FINAL = "ALTO RISCO"
                 PRAZO_RENOVAÇÃO = "06 MESES"
                 SITUACAO_CPF = "REGULAR"
-                APONTAMENTOS = "RESTRIÇÃO: Exposição ativa por função pública / PEP"
+                APONTAMENTOS = "RESTRIÇÃO: Exposição ativa ou histórico em função pública / PEP"
                 PERFIL_OP = "Agente Político / Exposição Pública"
-                PARECER = f"Identificado histórico/atuação como {cargo_detectado} junto ao {orgao_detectado}. Exige governança reforçada e monitoramento contínuo."
+                PARECER = f"Identificado histórico/atuação pública como {cargo_detectado}. Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
                 PROXIMA_ATUALIZACAO = "13/02/2027"
             else:
                 STATUS_PEP = "NÃO"
@@ -136,16 +134,14 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             styles = getSampleStyleSheet()
 
             # Estilos Customizados
-            style_title = ParagraphStyle('Title', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=TA_CENTER, textColor=colors.HexColor('#0056b3'))
-            style_meta = ParagraphStyle('Meta', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=12, alignment=TA_CENTER, textColor=colors.HexColor('#333333'))
-            style_sec = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, textColor=colors.white)
-            style_lbl = ParagraphStyle('Label', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#555555'))
-            style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=11, textColor=colors.HexColor('#212529'))
-            style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, alignment=TA_CENTER, textColor=colors.HexColor('#888888'))
-
-            # BADGES COLORIDOS
-            def get_badge(text, color_hex, text_color='#FFFFFF'):
-                return f'<font color="{color_hex}"><b>&nbsp;{text}&nbsp;</b></font>'
+            style_title = ParagraphStyle('Title', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, leading=16, alignment=TA_CENTER, textColor=colors.HexColor('#0056b3'))
+            style_meta_lbl = ParagraphStyle('MetaLbl', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=13, alignment=TA_CENTER, textColor=colors.HexColor('#0056b3'))
+            style_meta_val = ParagraphStyle('MetaVal', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=13, alignment=TA_CENTER, textColor=colors.HexColor('#212529'))
+            style_sec = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=13, textColor=colors.white)
+            style_lbl = ParagraphStyle('Label', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=11, textColor=colors.HexColor('#555555'))
+            style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=12, textColor=colors.HexColor('#212529'))
+            style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=8, leading=10, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
+            style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, alignment=TA_CENTER, textColor=colors.HexColor('#777777'))
 
             def format_val(key, text):
                 u = text.strip().upper()
@@ -158,42 +154,59 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                         return Paragraph(f'<font color="#ffc107"><b>{text}</b></font>', style_val)
                 return Paragraph(text, style_val)
 
-            # A. CABEÇALHO - LOGOS BKS & BKS RE (VETORIAIS/IMAGENS NÍTIDAS)
+            # FUNÇÃO PARA CARREGAR LOGO PRESERVANDO PROPORÇÃO
+            def load_proportional_img(path, target_h=45):
+                if path and os.path.exists(path):
+                    try:
+                        with PILImage.open(path) as p_img:
+                            w, h = p_img.size
+                            aspect = w / float(h)
+                            new_w = target_h * aspect
+                            return Image(path, width=new_w, height=target_h)
+                    except Exception:
+                        pass
+                return None
+
+            # A. CABEÇALHO - LOGOS BKS & BKS RE
             path_l1 = "logo_bks.png" if os.path.exists("logo_bks.png") else None
             path_l2 = "logo_bksre.png" if os.path.exists("logo_bksre.png") else None
 
-            img1 = Image(path_l1, width=160, height=50) if path_l1 else Paragraph("<b>BKS CORRETORA</b>", style_title)
-            img2 = Image(path_l2, width=160, height=50) if path_l2 else Paragraph("<b>BKS RE RESSEGUROS</b>", style_title)
+            img1 = load_proportional_img(path_l1, 45) or Paragraph("<b>BKS CORRETORA</b>", style_title)
+            img2 = load_proportional_img(path_l2, 45) or Paragraph("<b>BKS RE RESSEGUROS</b>", style_title)
 
-            t_header = Table([[img1, "", img2]], colWidths=[200, 122, 200])
+            t_header = Table([[img1, "", img2]], colWidths=[210, 102, 210])
             t_header.setStyle(TableStyle([
                 ('ALIGN', (0,0), (0,0), 'LEFT'),
                 ('ALIGN', (2,0), (2,0), 'RIGHT'),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ]))
             story.append(t_header)
-            story.append(Spacer(1, 15))
+            story.append(Spacer(1, 14))
 
-            # B. TÍTULO E METADADOS
+            # B. TÍTULO E METADADOS EM LINHAS SEPARADAS
             story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
-            story.append(Spacer(1, 10))
+            story.append(Spacer(1, 8))
 
             hoje = datetime.now().strftime('%d/%m/%Y')
-            meta_text = f"Emissor: Gemini AI Regulatory Assistant &nbsp;|&nbsp; Data da Consulta: {hoje}<br/>Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL"
+            meta_table_data = [
+                [Paragraph("Emissor: Gemini AI Regulatory Assistant", style_meta_val)],
+                [Paragraph(f"Data da Consulta: {hoje}", style_meta_val)],
+                [Paragraph("Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL", style_meta_val)]
+            ]
             
-            t_meta = Table([[Paragraph(meta_text, style_meta)]], colWidths=[522])
+            t_meta = Table(meta_table_data, colWidths=[522])
             t_meta.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8f9fa')),
                 ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
-                ('TOPPADDING', (0,0), (-1,-1), 6),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e1e4e8')),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
             ]))
             story.append(t_meta)
-            story.append(Spacer(1, 12))
+            story.append(Spacer(1, 14))
 
-            # FUNÇÃO PARA CRIAR SEÇÕES DE TABELA VETORIAL
+            # FUNÇÃO PARA CRIAR SEÇÕES DE TABELA VETORIAL COM MAIS ESPAÇAMENTO
             def make_sec(title, fields):
-                # Bar de Título
                 t_sec_title = Table([[Paragraph(title, style_sec)]], colWidths=[522])
                 t_sec_title.setStyle(TableStyle([
                     ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#0056b3')),
@@ -203,7 +216,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ]))
                 story.append(t_sec_title)
 
-                # Conteúdo da Seção
                 table_data = []
                 for i in range(0, len(fields), 2):
                     f1 = fields[i]
@@ -219,14 +231,14 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                     ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f4f6f8')),
                     ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
                     ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d0d7de')),
-                    ('TOPPADDING', (0,0), (-1,-1), 6),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                    ('TOPPADDING', (0,0), (-1,-1), 7),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 7),
                     ('LEFTPADDING', (0,0), (-1,-1), 8),
                     ('RIGHTPADDING', (0,0), (-1,-1), 8),
                     ('VALIGN', (0,0), (-1,-1), 'TOP'),
                 ]))
                 story.append(t_content)
-                story.append(Spacer(1, 10))
+                story.append(Spacer(1, 12))
 
             # RENDERING DAS 6 SEÇÕES
             make_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
@@ -265,15 +277,19 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ("PRÓXIMA ATUALIZAÇÃO RECOMENDADA", PROXIMA_ATUALIZACAO)
             ])
 
-            # RODAPÉ
-            story.append(Spacer(1, 10))
+            # C. DATA, HORÁRIO E RODAPÉ NO FIM DA PÁGINA
+            story.append(Spacer(1, 15))
+            hora_agora = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
+            story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora}", style_date))
+            story.append(Spacer(1, 12))
+
             ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
             story.append(Paragraph(ft_text, style_footer))
 
             doc.build(story)
             pdf_bytes = buffer.getvalue()
 
-            st.success("✅ Relatório Vetorial PDF de Altíssima Resolução Gerado!")
+            st.success("✅ Relatório PDF Atualizado com Sucesso!")
             st.download_button(
                 label="📥 Baixar Relatório PDF Oficial (BKS/BKSre)",
                 data=pdf_bytes,
