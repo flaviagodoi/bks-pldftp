@@ -153,10 +153,16 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             style_lbl = ParagraphStyle('Label', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=9, textColor=colors.HexColor('#555555'))
             style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor('#212529'))
             style_badge_txt = ParagraphStyle('BadgeTxt', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.5, leading=9, alignment=TA_CENTER, textColor=colors.white)
+            
+            # Estilo Alerta de Gerência (Fundo Branco, Letra Vermelha)
+            style_alert_gerencia = ParagraphStyle('AlertGerencia', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=11, alignment=TA_CENTER, textColor=colors.HexColor('#dc3545'))
+            
+            # Estilo Isenção de Responsabilidade (Disclaimer)
+            style_disclaimer = ParagraphStyle('Disclaimer', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#555555'))
             style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
             style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#777777'))
 
-            # FORMATADOR DE TARJAS COLORIDAS COMPACTAS (APENAS SOBRE A PALAVRA)
+            # FORMATADOR DE TARJAS COLORIDAS COMPACTAS
             def format_val(key, text):
                 u = text.strip().upper()
                 if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO']:
@@ -167,8 +173,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                         bg_col = "#ffc107" # Amarelo
 
                     txt_p = Paragraph(text, style_badge_txt)
-                    
-                    # Cálculo proporcional de largura do badge ajustado ao texto
                     calc_w = max(len(text) * 6.5, 45)
                     t_badge = Table([[txt_p]], colWidths=[calc_w])
                     t_badge.setStyle(TableStyle([
@@ -213,9 +217,9 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
 
             story.append(Spacer(1, 16))
 
-            # B. TÍTULO E METADADOS (COM LINHA DE ESPAÇO ATÉ A PRIMEIRA CAIXA CINZA)
+            # B. TÍTULO E METADADOS
             story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
-            story.append(Spacer(1, 10)) # Espaço do título para a primeira linha cinza
+            story.append(Spacer(1, 10))
 
             meta_table_data = [
                 [Paragraph("Emissor: Gemini AI Regulatory Assistant", style_meta_val)],
@@ -234,8 +238,8 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
 
             story.append(Spacer(1, 16))
 
-            # FUNÇÃO PARA CRIAR SEÇÕES DE TABELA VETORIAL
-            def make_sec(title, fields):
+            # FUNÇÃO PARA CRIAR SEÇÕES
+            def make_sec(title, fields, full_banner_alert=None):
                 t_sec_title = Table([[Paragraph(title, style_sec)]], colWidths=[522])
                 t_sec_title.setStyle(TableStyle([
                     ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#0056b3')),
@@ -267,6 +271,23 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                     ('VALIGN', (0,0), (-1,-1), 'TOP'),
                 ]))
                 story.append(t_content)
+
+                # ALERTA DA GERÊNCIA (Apenas no Tópico 5 quando PEP for Positivo)
+                if full_banner_alert:
+                    p_alert = Paragraph(full_banner_alert, style_alert_gerencia)
+                    t_alert = Table([[p_alert]], colWidths=[522])
+                    t_alert.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,-1), colors.white),
+                        ('BOX', (0,0), (-1,-1), 1.2, colors.HexColor('#dc3545')),
+                        ('TOPPADDING', (0,0), (-1,-1), 6),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                        ('LEFTPADDING', (0,0), (-1,-1), 10),
+                        ('RIGHTPADDING', (0,0), (-1,-1), 10),
+                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ]))
+                    story.append(t_alert)
+
                 story.append(Spacer(1, 8))
 
             # RENDERING DAS 6 SEÇÕES
@@ -296,18 +317,26 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
             ])
 
+            # TÓPICO 5: Adiciona o alerta de aprovação quando for PEP
+            alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com as tratativas de seguro." if STATUS_PEP == "SIM" else None
+
             make_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
                 ("NÍVEL DE RISCO FINAL", RISCO_FINAL, "RISCO_FINAL"),
                 ("PARECER DE CONFORMIDADE", PARECER)
-            ])
+            ], full_banner_alert=alerta_gerencia)
 
             make_sec("6. RENOVAÇÃO DE RELATÓRIO", [
                 ("PRAZO EXIGIDO PARA REVISÃO", PRAZO_RENOVAÇÃO, "PRAZO_RENOVAÇÃO"),
                 ("PRÓXIMA ATUALIZAÇÃO RECOMENDADA", PROXIMA_ATUALIZACAO)
             ])
 
-            # C. ESPAÇAMENTO E DATA/HORÁRIO
-            story.append(Spacer(1, 22))
+            # C. ISENÇÃO DE RESPONSABILIDADE + DATA/HORÁRIO
+            story.append(Spacer(1, 16))
+            
+            disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
+            story.append(Paragraph(disclaimer_txt, style_disclaimer))
+            
+            story.append(Spacer(1, 10))
             hora_agora = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
             story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora}", style_date))
 
