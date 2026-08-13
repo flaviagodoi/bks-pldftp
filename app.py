@@ -1,6 +1,6 @@
 import streamlit as st
 import io, os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
 from ddgs import DDGS
 
@@ -154,10 +154,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor('#212529'))
             style_badge_txt = ParagraphStyle('BadgeTxt', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.5, leading=9, alignment=TA_CENTER, textColor=colors.white)
             
-            # Estilo Alerta de Gerência (Fundo Branco, Letra Vermelha)
             style_alert_gerencia = ParagraphStyle('AlertGerencia', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=11, alignment=TA_CENTER, textColor=colors.HexColor('#dc3545'))
-            
-            # Estilo Isenção de Responsabilidade (Disclaimer)
             style_disclaimer = ParagraphStyle('Disclaimer', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#555555'))
             style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
             style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#777777'))
@@ -272,7 +269,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ]))
                 story.append(t_content)
 
-                # ALERTA DA GERÊNCIA (Apenas no Tópico 5 quando PEP for Positivo)
                 if full_banner_alert:
                     p_alert = Paragraph(full_banner_alert, style_alert_gerencia)
                     t_alert = Table([[p_alert]], colWidths=[522])
@@ -317,7 +313,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
             ])
 
-            # TÓPICO 5: Adiciona o alerta de aprovação quando for PEP
             alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com as tratativas de seguro." if STATUS_PEP == "SIM" else None
 
             make_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
@@ -330,15 +325,19 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ("PRÓXIMA ATUALIZAÇÃO RECOMENDADA", PROXIMA_ATUALIZACAO)
             ])
 
-            # C. ISENÇÃO DE RESPONSABILIDADE + DATA/HORÁRIO
+            # C. ISENÇÃO DE RESPONSABILIDADE + DATA/HORÁRIO DE BRASÍLIA (UTC-3)
             story.append(Spacer(1, 16))
             
             disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
             story.append(Paragraph(disclaimer_txt, style_disclaimer))
             
             story.append(Spacer(1, 10))
-            hora_agora = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
-            story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora}", style_date))
+            
+            # Cálculo exato do Horário de Brasília (UTC-3)
+            tz_brasilia = timezone(timedelta(hours=-3))
+            hora_agora_bsb = datetime.now(tz_brasilia).strftime('%d/%m/%Y às %H:%M:%S')
+            
+            story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
 
             # RODAPÉ FIXO NO FINAL DA FOLHA
             def add_footer(canvas, doc):
