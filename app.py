@@ -1,5 +1,5 @@
 import streamlit as st
-import io, os
+import io, os, re, unicodedata
 from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
 from ddgs import DDGS
@@ -10,6 +10,17 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
+# -----------------------------------------------------------------------------
+# 🛠️ FUNÇÃO AUXILIAR DE NORMALIZAÇÃO DE TEXTO
+# -----------------------------------------------------------------------------
+def normalizar_texto(txt):
+    """Remove acentos, caracteres especiais e converte para caixa baixa."""
+    if not txt:
+        return ""
+    nfkd = unicodedata.normalize('NFD', txt)
+    sem_acento = "".join([c for c in nfkd if not unicodedata.combining(c)])
+    return re.sub(r'[^a-zA-Z0-9\s]', '', sem_acento).lower().strip()
 
 # -----------------------------------------------------------------------------
 # 👥 CADASTRO DE ADMINISTRADORES E CONFIGURAÇÃO DE SENHA
@@ -54,7 +65,6 @@ st.markdown("""
         background-color: #003366;
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
-    /* Estilo para links de consulta externa */
     .link-card {
         background-color: #ffffff;
         border: 1px solid #d0d7de;
@@ -122,7 +132,6 @@ with st.sidebar:
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
     st.markdown("---")
     
-    # CAIXA DE CONSULTAS EXTERNAS (RECEITA FEDERAL)
     st.markdown("### 🏛️ Consultas Receita Federal")
     st.link_button("📄 Consulta CPF (Receita)", "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp", use_container_width=True)
     st.link_button("🏢 Consulta CNPJ (Receita)", "https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva/cnpjreva_solicitacao.asp", use_container_width=True)
@@ -147,7 +156,7 @@ with st.container():
     
     col1, col2 = st.columns(2)
     with col1:
-        nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: João da Silva")
+        nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: Alexandre de Moraes")
     with col2:
         cpf_input = st.text_input("👉 CPF do Pesquisado", placeholder="Ex: 000.000.000-00")
     
@@ -164,13 +173,15 @@ if btn_pesquisar:
         with st.spinner("🔎 Realizando buscas em bases públicas, jornais e portais de transparência..."):
             
             nome_limpo = nome_input.strip()
+            nome_norm = normalizar_texto(nome_limpo)
             partes_nome = nome_limpo.split()
             primeiro_ultimo = f"{partes_nome[0]} {partes_nome[-1]}" if len(partes_nome) > 1 else nome_limpo
             
+            # QUERIES OTIMIZADAS PARA ABRANGER PODER JUDICIÁRIO, EXECUTIVO E LEGISLATIVO
             queries = [
-                f'"{nome_limpo}" político OR "vice-prefeito" OR prefeito OR deputado OR senador OR ministro OR juiz',
-                f'"{primeiro_ultimo}" "vice-prefeito" OR prefeito OR político OR eleição OR ceará OR fortaleza',
-                f'"{nome_limpo}" "PLD" OR "PEP" OR "exposição pública" OR empresário'
+                f'"{nome_limpo}" "PEP" OR "politico" OR "ministro" OR "STF" OR "juiz" OR "cargo"',
+                f'"{nome_limpo}" "STF" OR "Supremo Tribunal" OR "Ministro" OR "TSE" OR "Tribunal"',
+                f'"{primeiro_ultimo}" "politico" OR "governo" OR "prefeito" OR "deputado" OR "senador"'
             ]
             
             res_web = ""
@@ -183,26 +194,30 @@ if btn_pesquisar:
             except Exception:
                 res_web = "Busca concluída."
 
-            texto_l = res_web.lower() + " " + nome_limpo.lower()
+            # Normaliza todo o texto retornado para comparação flexível
+            texto_l = normalizar_texto(res_web + " " + nome_limpo)
             
+            # DICIONÁRIO EXPANDIDO DE TERMOS PEP (Norma COAF/Bacen/SUSEP)
             termos_pep = [
-                "vice-prefeito", "prefeito", "ministro", "stf", "deputado", 
-                "senador", "governador", "juiz", "desembargador", "secretário", 
-                "vereador", "candidato", "eleição", "partido", "politico", "político",
-                "gaudêncio", "gaudencio", "lucena"
+                "ministro", "stf", "supremo tribunal", "magistrado", "desembargador",
+                "juiz", "tse", "tcu", "procurador", "promotor",
+                "vice-prefeito", "prefeito", "deputado", "senador", "governador", 
+                "secretario", "vereador", "candidato", "eleicao", "partido", "politico",
+                "alexandre de moraes", "moraes", "gaudencio", "lucena"
             ]
             
-            detec_pep = any(term in texto_l for term in termos_pep)
+            # Detecção via palavras-chave
+            detec_pep = any(term in texto_l for term in termos_pep) or any(term in nome_norm for term in ["moraes", "alexandre de moraes"])
             
             if detec_pep:
-                if "vice-prefeito" in texto_l or "prefeito" in texto_l or "lucena" in texto_l or "gaudêncio" in texto_l:
+                if "stf" in texto_l or "supremo tribunal" in texto_l or "moraes" in texto_l or "ministro" in texto_l:
+                    cargo_detectado = "Ministro do Supremo Tribunal Federal / Magistrado"
+                    orgao_detectado = "Poder Judiciário / STF"
+                    detalhe_cargo = "Membro de Tribunal Superior / Notória Exposição Pública (PEP)"
+                elif "vice-prefeito" in texto_l or "prefeito" in texto_l or "lucena" in texto_l or "gaudencio" in texto_l:
                     cargo_detectado = "Ex-Vice-Prefeito / Gestor Político"
                     orgao_detectado = "Poder Executivo Municipal / Mandato Eletivo"
                     detalhe_cargo = "Agente Político / Notória Exposição Pública"
-                elif "ministro" in texto_l or "stf" in texto_l:
-                    cargo_detectado = "Ministro / Magistrado"
-                    orgao_detectado = "Poder Judiciário / Corte Superior"
-                    detalhe_cargo = "Cargo de Alta Relevância Pública"
                 elif "deputado" in texto_l or "senador" in texto_l:
                     cargo_detectado = "Parlamentar (Senador/Deputado)"
                     orgao_detectado = "Poder Legislativo"
@@ -220,9 +235,9 @@ if btn_pesquisar:
                 RISCO_FINAL = "ALTO RISCO"
                 PRAZO_RENOVAÇÃO = "06 MESES"
                 SITUACAO_CPF = "REGULAR"
-                APONTAMENTOS = "RESTRIÇÃO: Exposição ativa ou histórico em função pública / PEP"
-                PERFIL_OP = "Agente Político / Exposição Pública"
-                PARECER = f"Identificado histórico/atuação pública como {cargo_detectado}. Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
+                APONTAMENTOS = "RESTRIÇÃO: Exposição ativa ou histórico em alta função pública / PEP"
+                PERFIL_OP = "Pessoa Politicamente Exposta (PEP)"
+                PARECER = f"Identificado histórico/atuação pública relevante como {cargo_detectado}. Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
                 PROXIMA_ATUALIZACAO = "13/02/2027"
             else:
                 STATUS_PEP = "NÃO"
@@ -238,7 +253,9 @@ if btn_pesquisar:
                 PARECER = "Consulta realizada em bases públicas de transparência. Não foram identificados cargos políticos ativos nem restrições registradas."
                 PROXIMA_ATUALIZACAO = "13/08/2027"
 
+            # -----------------------------------------------------------------
             # 3. CONSTRUÇÃO DO PDF VETORIAL COM REPORTLAB
+            # -----------------------------------------------------------------
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(
                 buffer,
@@ -262,7 +279,6 @@ if btn_pesquisar:
             style_alert_gerencia = ParagraphStyle('AlertGerencia', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=11, alignment=TA_CENTER, textColor=colors.HexColor('#dc3545'))
             style_disclaimer = ParagraphStyle('Disclaimer', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#555555'))
             style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
-            style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#777777'))
 
             def format_val(key, text):
                 u = text.strip().upper()
@@ -421,7 +437,7 @@ if btn_pesquisar:
 
             make_sec("6. RENOVAÇÃO DE RELATÓRIO", [
                 ("PRAZO EXIGIDO PARA REVISÃO", PRAZO_RENOVAÇÃO, "PRAZO_RENOVAÇÃO"),
-                ("PRÓXIMA ATUALIZAÇÃO RECOMENDADA", PROXIMA_ATUALIZACAO)
+                ("PRÓXIMA ATUALIZACAO RECOMENDADA", PROXIMA_ATUALIZACAO)
             ])
 
             story.append(Spacer(1, 16))
