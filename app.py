@@ -59,10 +59,9 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             except Exception:
                 res_web = "Busca concluída."
 
-            # 2. ENQUADRAMENTO E ENRIQUECIMENTO DE DADOS
+            # 2. ENQUADRAMENTO DE DADOS
             texto_l = res_web.lower()
             
-            # Detecção de Cargos e Órgãos Públicos
             if "stf" in texto_l or "supremo tribunal" in texto_l or "ministro" in texto_l:
                 cargo_detectado = "Ministro / Magistrado"
                 orgao_detectado = "Poder Judiciário / Corte Superior (STF/STJ)"
@@ -114,35 +113,30 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 PARECER = "Consulta realizada em bases públicas de transparência. Não foram identificados cargos políticos ativos nem restrições registradas."
                 PROXIMA_ATUALIZACAO = "13/08/2027"
 
-            # 3. CONSTRUÇÃO DO PDF (CANVAS PIL)
+            # 3. CONSTRUÇÃO DO PDF (CANVAS)
             W, H = 1240, 1754
             img = Image.new('RGB', (W, H), 'white')
             draw = ImageDraw.Draw(img)
 
-            # Carregador Inteligente de Fontes (Suporta Acentuação em Linux/Streamlit Cloud)
-            def load_font(font_names, size):
-                font_paths = [
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                    "arialbd.ttf", "arial.ttf"
-                ]
-                for font_name in font_names:
-                    for path in font_paths:
-                        if font_name.lower() in path.lower() and os.path.exists(path):
-                            try:
-                                return ImageFont.truetype(path, size)
-                            except Exception:
-                                pass
-                return ImageFont.load_default()
-
-            f_title = load_font(["bold"], 23)
-            f_sec = load_font(["bold"], 17)
-            f_lbl = load_font(["bold"], 13)
-            f_val = load_font(["regular"], 15)
-            f_badge = load_font(["bold"], 14)
-            f_footer = load_font(["regular"], 12)
+            # CARREGAMENTO INTELIGENTE DE FONTES COM SUPORTE COMPLETO A ACENTOS
+            f_title = f_sec = f_lbl = f_val = f_badge = f_footer = ImageFont.load_default()
+            font_paths = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+            ]
+            for p in font_paths:
+                if os.path.exists(p):
+                    try:
+                        f_title = ImageFont.truetype(p, 23)
+                        f_sec = ImageFont.truetype(p, 17)
+                        f_lbl = ImageFont.truetype(p, 13)
+                        f_val = ImageFont.truetype(p, 15)
+                        f_badge = ImageFont.truetype(p, 14)
+                        f_footer = ImageFont.truetype(p, 11)
+                        break
+                    except Exception: pass
 
             # PALETA DE CORES
             C_BLUE, C_GREEN, C_RED, C_YEL = '#0056b3', '#28a745', '#dc3545', '#ffc107'
@@ -156,34 +150,32 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 'RESTRIÇÃO': (C_RED, '#FFF'), 'IRREGULAR': (C_RED, '#FFF')
             }
 
-            # 4. CABEÇALHO COM LOGOS (BKS & BKS RE)
-            def draw_header_logos():
-                has_bks, has_bksre = False, False
-                if os.path.exists("logo_bks.png"):
+            # DESENHA CABEÇALHO E LOGOS
+            has_l1, has_l2 = False, False
+            for ext in ['.png', '.PNG', '.jpg', '.jpeg']:
+                p1 = f"logo_bks{ext}"
+                p2 = f"logo_bksre{ext}"
+                if os.path.exists(p1) and not has_l1:
                     try:
-                        l1 = Image.open("logo_bks.png").convert("RGBA")
-                        l1.thumbnail((260, 80))
-                        img.paste(l1, (70, 40), l1)
-                        has_bks = True
+                        l1 = Image.open(p1).convert("RGBA")
+                        l1.thumbnail((280, 85))
+                        img.paste(l1, (70, 35), l1)
+                        has_l1 = True
                     except Exception: pass
-                
-                if os.path.exists("logo_bksre.png"):
+                if os.path.exists(p2) and not has_l2:
                     try:
-                        l2 = Image.open("logo_bksre.png").convert("RGBA")
-                        l2.thumbnail((260, 80))
-                        img.paste(l2, (W - 330, 40), l2)
-                        has_bksre = True
+                        l2 = Image.open(p2).convert("RGBA")
+                        l2.thumbnail((280, 85))
+                        img.paste(l2, (W - 350, 35), l2)
+                        has_l2 = True
                     except Exception: pass
 
-                # Caso os arquivos de imagem ainda não estejam na pasta, desenha marcas elegantes
-                if not has_bks:
-                    draw.rectangle([70, 40, 310, 95], fill='#003366')
-                    draw.text((85, 58), "BKS CORRETORA", fill='white', font=f_sec)
-                if not has_bksre:
-                    draw.rectangle([W - 310, 40, W - 70, 95], fill='#0056b3')
-                    draw.text((W - 295, 58), "BKS RE RESSEGUROS", fill='white', font=f_sec)
-
-            draw_header_logos()
+            if not has_l1:
+                draw.rectangle([70, 35, 320, 90], fill='#003366')
+                draw.text((85, 53), "BKS CORRETORA", fill='white', font=f_sec)
+            if not has_l2:
+                draw.rectangle([W - 320, 35, W - 70, 90], fill='#0056b3')
+                draw.text((W - 305, 53), "BKS RE RESSEGUROS", fill='white', font=f_sec)
 
             # TÍTULO CENTRALIZADO
             y_cursor = 135
@@ -249,7 +241,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             draw_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
                 ("NOME COMPLETO", nome_input.upper()),
                 ("CPF", cpf_input),
-                ("PERFIL E NURE", "Pessoa Física"),
+                ("PERFIL E NATUREZA", "Pessoa Física"),
                 ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
             ])
 
@@ -287,7 +279,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             try:
                 b_f = draw.textbbox((0, 0), ft, font=f_footer)
                 x_f = (W - (b_f[2] - b_f[0])) / 2
-            except Exception: x_f = 200
+            except Exception: x_f = 150
             draw.text((x_f, 1680), ft, fill='#888888', font=f_footer)
 
             # EXPORTAÇÃO
