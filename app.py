@@ -1,3 +1,4 @@
+
 import streamlit as st
 import io, textwrap
 from datetime import datetime
@@ -140,7 +141,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                         vy += 20
 
             def draw_sec(title, fields, custom_h=80):
-                nonlocal y_cursor
+                global y_cursor
                 draw.rectangle([70, y_cursor, W - 70, y_cursor + 32], fill=C_BLUE)
                 draw.text((85, y_cursor + 6), title, fill='white', font=f_sec)
                 y_cursor += 32
