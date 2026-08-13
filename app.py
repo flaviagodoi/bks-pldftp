@@ -12,50 +12,131 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🔒 ACESSO RESTRITO
+# 🔒 ACESSO RESTRITO E CONFIGURAÇÃO DA PÁGINA
 # -----------------------------------------------------------------------------
 SENHA_ACESSO = "Bks2026@"
 
-st.set_page_config(page_title="PLD/FTP - BKS Compliance", page_icon="🛡️", layout="centered")
+st.set_page_config(
+    page_title="PLD/FTP - BKS Compliance", 
+    page_icon="🛡️", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ESTILIZAÇÃO CSS CUSTOMIZADA PARA DEIXAR A INTERFACE MODERNA
+st.markdown("""
+    <style>
+    /* Estilo do fundo e fontes */
+    .main {
+        background-color: #f8f9fa;
+    }
+    /* Estilo dos Títulos */
+    h1 {
+        color: #0056b3;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-weight: 700;
+        margin-bottom: 0px;
+    }
+    /* Estilo dos Cards de Entrada */
+    .css-card {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 25px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border: 1px solid #e1e4e8;
+        margin-bottom: 25px;
+    }
+    /* Botão Principal em Azul BKS */
+    div.stButton > button:first-child {
+        background-color: #0056b3;
+        color: white;
+        font-weight: bold;
+        border-radius: 6px;
+        border: none;
+        padding: 12px 24px;
+        transition: all 0.3s ease;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #003366;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
+# -----------------------------------------------------------------------------
+# 🔑 TELA DE LOGIN ESTILIZADA
+# -----------------------------------------------------------------------------
 if not st.session_state.autenticado:
-    st.title("🛡️ Acesso Restrito - BKS Compliance")
-    st.caption("BKS Corretora de Seguros & BKS Re Corretora de Resseguros")
-    st.markdown("---")
-    senha_digitada = st.text_input("🔑 Senha de Acesso do Sistema:", type="password")
-    if st.button("Entrar no Painel", type="primary"):
-        if senha_digitada == SENHA_ACESSO:
-            st.session_state.autenticado = True
-            st.rerun()
-        else:
-            st.error("❌ Senha incorreta! Acesso negado.")
+    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+    with col_l2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.image("logo_bks.png" if os.path.exists("logo_bks.png") else "https://via.placeholder.com/300x80?text=BKS+Compliance", width=260)
+        st.title("🛡️ Acesso ao Painel PLD/FTP")
+        st.caption("Sistema de Conformidade e Prevenção à Lavagem de Dinheiro")
+        st.markdown("---")
+        
+        senha_digitada = st.text_input("🔑 Digite a Senha de Acesso:", type="password")
+        if st.button("🔓 Entrar no Sistema", use_container_width=True):
+            if senha_digitada == SENHA_ACESSO:
+                st.session_state.autenticado = True
+                st.rerun()
+            else:
+                st.error("❌ Senha incorreta! Acesso negado.")
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 🛡️ PAINEL PRINCIPAL DE CONSULTA
+# 🛡️ BARRA LATERAL (SIDEBAR) COM PROFILE E CONTROLES
 # -----------------------------------------------------------------------------
-st.title("🛡️ Painel de Consulta PLD/FTP")
-st.caption("BKS Corretora de Seguros & BKS Re Corretora de Resseguros")
+with st.sidebar:
+    if os.path.exists("logo_bks.png"):
+        st.image("logo_bks.png", use_container_width=True)
+    elif os.path.exists("logo_bksre.png"):
+        st.image("logo_bksre.png", use_container_width=True)
+    
+    st.markdown("### 🟢 Status: **Operacional**")
+    st.caption("BKS Corretora & BKS Re Resseguros")
+    st.markdown("---")
+    st.markdown("👤 **Usuário:** flavia.godoi@bks.com.br")
+    st.markdown("🔐 **Perfil:** Administrador Compliance")
+    st.markdown("---")
+    
+    if st.button("🔒 Sair do Sistema", use_container_width=True):
+        st.session_state.autenticado = False
+        st.rerun()
 
-if st.sidebar.button("🔒 Sair do Sistema"):
-    st.session_state.autenticado = False
-    st.rerun()
+# -----------------------------------------------------------------------------
+# 🛡️ PAINEL PRINCIPAL
+# -----------------------------------------------------------------------------
+st.title("🛡️ Painel Oficial de Consulta PLD/FTP")
+st.caption("Pesquisa automatizada em portais de transparência e bases públicas para enquadramento regulatório.")
+st.markdown("<br>", unsafe_allow_html=True)
 
-st.markdown("---")
+# CARD DO FORMULÁRIO DE CONSULTA
+with st.container():
+    st.markdown("### 📋 Dados do Pesquisado")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: Gaudêncio Gonçalves de Lucena")
+    with col2:
+        cpf_input = st.text_input("👉 CPF do Pesquisado", placeholder="Ex: 000.000.000-00")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
-nome_input = st.text_input("👉 Nome Completo do Pesquisado")
-cpf_input = st.text_input("👉 CPF do Pesquisado")
-
-if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
+# -----------------------------------------------------------------------------
+# ⚙️ EXECUÇÃO DA CONSULTA E GERAÇÃO DO PDF
+# -----------------------------------------------------------------------------
+if btn_pesquisar:
     if not nome_input.strip() or not cpf_input.strip():
         st.warning("⚠️ Por favor, preencha o Nome e o CPF antes de continuar.")
     else:
-        with st.spinner("🔎 Vasculhando portais de transparência, redes e bases abertas..."):
+        with st.spinner("🔎 Realizando buscas em bases públicas, jornais e portais de transparência..."):
             
-            # 1. MOTOR DE BUSCA MULTI-QUERY EXPANDIDO
+            # 1. MOTOR DE BUSCA MULTI-QUERY
             nome_limpo = nome_input.strip()
             partes_nome = nome_limpo.split()
             primeiro_ultimo = f"{partes_nome[0]} {partes_nome[-1]}" if len(partes_nome) > 1 else nome_limpo
@@ -76,7 +157,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             except Exception:
                 res_web = "Busca concluída."
 
-            # 2. ENQUADRAMENTO AMPLIADO DE DADOS
+            # 2. ENQUADRAMENTO DE DADOS
             texto_l = res_web.lower() + " " + nome_limpo.lower()
             
             termos_pep = [
@@ -146,7 +227,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             story = []
             styles = getSampleStyleSheet()
 
-            # ESTILOS COM FONTES AJUSTADAS
             style_title = ParagraphStyle('Title', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=14, alignment=TA_CENTER, textColor=colors.HexColor('#0056b3'))
             style_meta_val = ParagraphStyle('MetaVal', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=10, alignment=TA_CENTER, textColor=colors.HexColor('#212529'))
             style_sec = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white)
@@ -159,15 +239,14 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
             style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#777777'))
 
-            # FORMATADOR DE TARJAS COLORIDAS COMPACTAS
             def format_val(key, text):
                 u = text.strip().upper()
                 if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO']:
-                    bg_col = "#28a745" # Verde
+                    bg_col = "#28a745"
                     if u in ['SIM', 'ALTO RISCO', '06 MESES']:
-                        bg_col = "#dc3545" # Vermelho
+                        bg_col = "#dc3545"
                     elif u in ['MÉDIO RISCO']:
-                        bg_col = "#ffc107" # Amarelo
+                        bg_col = "#ffc107"
 
                     txt_p = Paragraph(text, style_badge_txt)
                     calc_w = max(len(text) * 6.5, 45)
@@ -185,7 +264,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
 
                 return Paragraph(text, style_val)
 
-            # LOGOS
             def load_proportional_img(path, target_h=65):
                 if path and os.path.exists(path):
                     try:
@@ -211,10 +289,8 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ]))
             story.append(t_header)
-
             story.append(Spacer(1, 16))
 
-            # B. TÍTULO E METADADOS
             story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
             story.append(Spacer(1, 10))
 
@@ -232,10 +308,8 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ('BOTTOMPADDING', (0,0), (-1,-1), 4),
             ]))
             story.append(t_meta)
-
             story.append(Spacer(1, 16))
 
-            # FUNÇÃO PARA CRIAR SEÇÕES
             def make_sec(title, fields, full_banner_alert=None):
                 t_sec_title = Table([[Paragraph(title, style_sec)]], colWidths=[522])
                 t_sec_title.setStyle(TableStyle([
@@ -286,7 +360,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
 
                 story.append(Spacer(1, 8))
 
-            # RENDERING DAS 6 SEÇÕES
             make_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
                 ("NOME COMPLETO", nome_input.upper()),
                 ("CPF", cpf_input),
@@ -325,21 +398,15 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ("PRÓXIMA ATUALIZAÇÃO RECOMENDADA", PROXIMA_ATUALIZACAO)
             ])
 
-            # C. ISENÇÃO DE RESPONSABILIDADE + DATA/HORÁRIO DE BRASÍLIA (UTC-3)
             story.append(Spacer(1, 16))
-            
             disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
             story.append(Paragraph(disclaimer_txt, style_disclaimer))
-            
             story.append(Spacer(1, 10))
             
-            # Cálculo exato do Horário de Brasília (UTC-3)
             tz_brasilia = timezone(timedelta(hours=-3))
             hora_agora_bsb = datetime.now(tz_brasilia).strftime('%d/%m/%Y às %H:%M:%S')
-            
             story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
 
-            # RODAPÉ FIXO NO FINAL DA FOLHA
             def add_footer(canvas, doc):
                 canvas.saveState()
                 ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
@@ -351,11 +418,13 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
             pdf_bytes = buffer.getvalue()
 
-            st.success("✅ Relatório PDF Atualizado com Sucesso!")
+            st.markdown("---")
+            st.success("✅ Relatório de Conformidade Gerado com Sucesso!")
+            
             st.download_button(
-                label="📥 Baixar Relatório PDF Oficial (BKS/BKSre)",
+                label="📥 Baixar Relatório PDF Oficial (BKS / BKS Re)",
                 data=pdf_bytes,
                 file_name=f"Relatorio_PLD_{nome_input.replace(' ', '_').upper()}.pdf",
                 mime="application/pdf",
-                type="primary"
+                use_container_width=True
             )
