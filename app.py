@@ -1,8 +1,14 @@
 import streamlit as st
-import io, textwrap, os
+import io, os
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont
 from ddgs import DDGS
+
+# ReportLab - Gerador Vetorial Profissional de PDF
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 # -----------------------------------------------------------------------------
 # 🔒 ACESSO RESTRITO
@@ -28,7 +34,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 🛡️ PAINEL PRINCIPAL DE CONSULTA E PDF
+# 🛡️ PAINEL PRINCIPAL
 # -----------------------------------------------------------------------------
 st.title("🛡️ Painel de Consulta PLD/FTP")
 st.caption("BKS Corretora de Seguros & BKS Re Corretora de Resseguros")
@@ -48,7 +54,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
     else:
         with st.spinner("🔎 Vasculhando portais de transparência e bases abertas..."):
             
-            # 1. BUSCA WEB EM TEMPO REAL
+            # 1. BUSCA WEB
             query = f'"{nome_input}" político OR ministro OR prefeito OR deputado OR senador OR juiz OR STF OR tribunal'
             res_web = ""
             try:
@@ -59,7 +65,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             except Exception:
                 res_web = "Busca concluída."
 
-            # 2. ENQUADRAMENTO DE DADOS
+            # 2. LÓGICA DE DADOS
             texto_l = res_web.lower()
             
             if "stf" in texto_l or "supremo tribunal" in texto_l or "ministro" in texto_l:
@@ -115,187 +121,159 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 PARECER = "Consulta realizada em bases públicas de transparência. Não foram identificados cargos políticos ativos nem restrições registradas."
                 PROXIMA_ATUALIZACAO = "13/08/2027"
 
-            # 3. CONSTRUÇÃO DO PDF EM ALTA RESOLUÇÃO (CANVAS AMPLIA)
-            W, H = 1600, 2260
-            img = Image.new('RGB', (W, H), 'white')
-            draw = ImageDraw.Draw(img)
+            # 3. CONSTRUÇÃO DO PDF VETORIAL COM REPORTLAB
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                leftMargin=36,
+                rightMargin=36,
+                topMargin=36,
+                bottomMargin=36
+            )
 
-            # CARREGAMENTO DE FONTES MAIORES
-            f_title = f_sec = f_lbl = f_val = f_badge = f_footer = ImageFont.load_default()
-            font_paths = [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-            ]
-            for p in font_paths:
-                if os.path.exists(p):
-                    try:
-                        f_title = ImageFont.truetype(p, 30)
-                        f_sec = ImageFont.truetype(p, 22)
-                        f_lbl = ImageFont.truetype(p, 18)
-                        f_val = ImageFont.truetype(p, 20)
-                        f_badge = ImageFont.truetype(p, 19)
-                        f_footer = ImageFont.truetype(p, 15)
-                        break
-                    except Exception: pass
+            story = []
+            styles = getSampleStyleSheet()
 
-            # PALETA DE CORES
-            C_BLUE, C_GREEN, C_RED, C_YEL = '#0056b3', '#28a745', '#dc3545', '#ffc107'
-            C_GREY_BG, C_BORDER, C_DARK, C_LABEL = '#f4f6f8', '#d0d7de', '#212529', '#555555'
+            # Estilos Customizados
+            style_title = ParagraphStyle('Title', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=TA_CENTER, textColor=colors.HexColor('#0056b3'))
+            style_meta = ParagraphStyle('Meta', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=12, alignment=TA_CENTER, textColor=colors.HexColor('#333333'))
+            style_sec = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, textColor=colors.white)
+            style_lbl = ParagraphStyle('Label', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#555555'))
+            style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=11, textColor=colors.HexColor('#212529'))
+            style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, alignment=TA_CENTER, textColor=colors.HexColor('#888888'))
 
-            # APENAS ESTES CAMPOS RECEBEM BALÕES COLORIDOS (BADGES)
-            BADGES_ONLY = {
-                'NÃO': (C_GREEN, '#FFF'), 'SIM': (C_RED, '#FFF'),
-                'BAIXO': (C_GREEN, '#FFF'), 'ALTO RISCO': (C_RED, '#FFF'), 'MÉDIO RISCO': (C_YEL, '#212529'),
-                '01 ANO': (C_GREEN, '#FFF'), '06 MESES': (C_RED, '#FFF')
-            }
+            # BADGES COLORIDOS
+            def get_badge(text, color_hex, text_color='#FFFFFF'):
+                return f'<font color="{color_hex}"><b>&nbsp;{text}&nbsp;</b></font>'
 
-            # 4. CABEÇALHO COM LOGOS EM TAMANHO DUPLO
-            has_l1, has_l2 = False, False
-            for ext in ['.png', '.PNG', '.jpg', '.jpeg']:
-                p1 = f"logo_bks{ext}"
-                p2 = f"logo_bksre{ext}"
-                if os.path.exists(p1) and not has_l1:
-                    try:
-                        l1 = Image.open(p1).convert("RGBA")
-                        l1.thumbnail((420, 140))
-                        img.paste(l1, (90, 45), l1)
-                        has_l1 = True
-                    except Exception: pass
-                if os.path.exists(p2) and not has_l2:
-                    try:
-                        l2 = Image.open(p2).convert("RGBA")
-                        l2.thumbnail((420, 140))
-                        img.paste(l2, (W - 510, 45), l2)
-                        has_l2 = True
-                    except Exception: pass
+            def format_val(key, text):
+                u = text.strip().upper()
+                if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO']:
+                    if u in ['SIM', 'ALTO RISCO', '06 MESES']:
+                        return Paragraph(f'<font color="#dc3545"><b>{text}</b></font>', style_val)
+                    elif u in ['NÃO', 'BAIXO', '01 ANO']:
+                        return Paragraph(f'<font color="#28a745"><b>{text}</b></font>', style_val)
+                    elif u in ['MÉDIO RISCO']:
+                        return Paragraph(f'<font color="#ffc107"><b>{text}</b></font>', style_val)
+                return Paragraph(text, style_val)
 
-            if not has_l1:
-                draw.rectangle([90, 45, 450, 130], fill='#003366')
-                draw.text((110, 72), "BKS CORRETORA", fill='white', font=f_sec)
-            if not has_l2:
-                draw.rectangle([W - 450, 45, W - 90, 130], fill='#0056b3')
-                draw.text((W - 430, 72), "BKS RE RESSEGUROS", fill='white', font=f_sec)
+            # A. CABEÇALHO - LOGOS BKS & BKS RE (VETORIAIS/IMAGENS NÍTIDAS)
+            path_l1 = "logo_bks.png" if os.path.exists("logo_bks.png") else None
+            path_l2 = "logo_bksre.png" if os.path.exists("logo_bksre.png") else None
 
-            # TÍTULO CENTRALIZADO
-            y_cursor = 195
-            txt_t = "RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)"
-            try:
-                b_t = draw.textbbox((0, 0), txt_t, font=f_title)
-                x_t = (W - (b_t[2] - b_t[0])) / 2
-            except Exception: x_t = 300
-            draw.text((x_t, y_cursor), txt_t, fill=C_BLUE, font=f_title)
+            img1 = Image(path_l1, width=160, height=50) if path_l1 else Paragraph("<b>BKS CORRETORA</b>", style_title)
+            img2 = Image(path_l2, width=160, height=50) if path_l2 else Paragraph("<b>BKS RE RESSEGUROS</b>", style_title)
 
-            # METADADOS CENTRALIZADOS
-            y_cursor += 60
+            t_header = Table([[img1, "", img2]], colWidths=[200, 122, 200])
+            t_header.setStyle(TableStyle([
+                ('ALIGN', (0,0), (0,0), 'LEFT'),
+                ('ALIGN', (2,0), (2,0), 'RIGHT'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ]))
+            story.append(t_header)
+            story.append(Spacer(1, 15))
+
+            # B. TÍTULO E METADADOS
+            story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
+            story.append(Spacer(1, 10))
+
             hoje = datetime.now().strftime('%d/%m/%Y')
-            meta_lines = [
-                "Emissor: Gemini AI Regulatory Assistant",
-                f"Data da Consulta: {hoje}",
-                "Status: CONCLUÍDO   |   Classificação: CONFIDENCIAL"
-            ]
-            draw.rectangle([90, y_cursor, W - 90, y_cursor + 140], fill='#f8f9fa', outline=C_BORDER)
-            my_y = y_cursor + 20
-            for line in meta_lines:
-                try:
-                    b_m = draw.textbbox((0, 0), line, font=f_val)
-                    x_m = (W - (b_m[2] - b_m[0])) / 2
-                except Exception: x_m = 500
-                draw.text((x_m, my_y), line, fill='#333333', font=f_val)
-                my_y += 36
+            meta_text = f"Emissor: Gemini AI Regulatory Assistant &nbsp;|&nbsp; Data da Consulta: {hoje}<br/>Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL"
             
-            y_cursor += 175
+            t_meta = Table([[Paragraph(meta_text, style_meta)]], colWidths=[522])
+            t_meta.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8f9fa')),
+                ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
+                ('TOPPADDING', (0,0), (-1,-1), 6),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(t_meta)
+            story.append(Spacer(1, 12))
 
-            # CÉLULAS E SEÇÕES COM ALTURA E ESPAÇAMENTO EXPANDIDOS
-            def draw_cell(x, y, label, val_text, custom_h=105):
-                draw.text((x + 20, y + 10), label, fill=C_LABEL, font=f_lbl)
-                val_str = str(val_text).strip()
-                bg_fg = BADGES_ONLY.get(val_str.upper(), None)
-                vy = y + 42
-                
-                if bg_fg:
-                    bg, fg = bg_fg
-                    draw.rounded_rectangle([x + 20, vy - 2, x + 240, vy + 42], radius=6, fill=bg)
-                    draw.text((x + 35, vy + 6), val_str, fill=fg, font=f_badge)
-                else:
-                    lines = textwrap.wrap(val_str, width=38)
-                    for l in lines[:3]:
-                        draw.text((x + 20, vy), l, fill=C_DARK, font=f_val)
-                        vy += 28
+            # FUNÇÃO PARA CRIAR SEÇÕES DE TABELA VETORIAL
+            def make_sec(title, fields):
+                # Bar de Título
+                t_sec_title = Table([[Paragraph(title, style_sec)]], colWidths=[522])
+                t_sec_title.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#0056b3')),
+                    ('TOPPADDING', (0,0), (-1,-1), 5),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+                    ('LEFTPADDING', (0,0), (-1,-1), 8),
+                ]))
+                story.append(t_sec_title)
 
-            def draw_sec(title, fields, custom_h=105):
-                global y_cursor
-                draw.rectangle([90, y_cursor, W - 90, y_cursor + 42], fill=C_BLUE)
-                draw.text((110, y_cursor + 8), title, fill='white', font=f_sec)
-                y_cursor += 42
-                cw = (W - 180) / 2
+                # Conteúdo da Seção
+                table_data = []
                 for i in range(0, len(fields), 2):
                     f1 = fields[i]
                     f2 = fields[i+1] if i+1 < len(fields) else None
                     
-                    # Desenha primeira coluna
-                    draw.rectangle([90, y_cursor, 90 + cw, y_cursor + custom_h], fill=C_GREY_BG, outline=C_BORDER)
-                    draw_cell(90, y_cursor, f1[0], f1[1], custom_h)
+                    c1 = [Paragraph(f1[0], style_lbl), format_val(f1[2] if len(f1)>2 else '', f1[1])]
+                    c2 = [Paragraph(f2[0], style_lbl), format_val(f2[2] if len(f2)>2 else '', f2[1])] if f2 else ["", ""]
                     
-                    # Desenha segunda coluna
-                    if f2:
-                        draw.rectangle([90 + cw, y_cursor, W - 90, y_cursor + custom_h], fill=C_GREY_BG, outline=C_BORDER)
-                        draw_cell(90 + cw, y_cursor, f2[0], f2[1], custom_h)
-                    
-                    y_cursor += custom_h
-                y_cursor += 18
+                    table_data.append([c1, c2])
 
-            # RENDERING DAS 6 SEÇÕES COM MUDANÇAS SOLICITADAS
-            draw_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
+                t_content = Table(table_data, colWidths=[261, 261])
+                t_content.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f4f6f8')),
+                    ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
+                    ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d0d7de')),
+                    ('TOPPADDING', (0,0), (-1,-1), 6),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                    ('LEFTPADDING', (0,0), (-1,-1), 8),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 8),
+                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ]))
+                story.append(t_content)
+                story.append(Spacer(1, 10))
+
+            # RENDERING DAS 6 SEÇÕES
+            make_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
                 ("NOME COMPLETO", nome_input.upper()),
                 ("CPF", cpf_input),
                 ("PERFIL E NATUREZA", "Pessoa Física"),
                 ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
             ])
 
-            draw_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
-                ("STATUS PEP DIRETO", STATUS_PEP),
+            make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
+                ("STATUS PEP DIRETO", STATUS_PEP, "STATUS_PEP"),
                 ("STATUS POR VÍNCULO", PEP_VINCULO),
                 ("ÓRGÃO / ENTIDADE DE ATUAÇÃO", ORGAO_ENTIDADE),
                 ("ENQUADRAMENTO DO CARGO", DETALHE_EXPOSICAO)
-            ], custom_h=115)
+            ])
 
-            draw_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
+            make_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
                 ("RELAÇÃO 2º GRAU PEP", "Sem vínculos mapeados"),
                 ("SOCIEDADES E PARTICIPAÇÕES", "Sem restrições ativas")
             ])
 
-            draw_sec("4. PERFIL EMPRESARIAL E SETOR DE ATUAÇÃO (RISCO OPERACIONAL)", [
+            make_sec("4. PERFIL EMPRESARIAL E SETOR DE ATUAÇÃO (RISCO OPERACIONAL)", [
                 ("PERFIL OPERACIONAL", PERFIL_OP),
                 ("REGIÃO DE ATUAÇÃO", "Brasil"),
-                ("SITUAÇÃO CADASTRAL CPF", SITUACAO_CPF), # <-- MUDADO PARA CPF
-                ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS) # <-- COM MOTIVO SUCINTO
-            ], custom_h=115)
+                ("SITUAÇÃO CADASTRAL CPF", SITUACAO_CPF),
+                ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
+            ])
 
-            draw_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
-                ("NÍVEL DE RISCO FINAL", RISCO_FINAL),
+            make_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
+                ("NÍVEL DE RISCO FINAL", RISCO_FINAL, "RISCO_FINAL"),
                 ("PARECER DE CONFORMIDADE", PARECER)
-            ], custom_h=135)
+            ])
 
-            draw_sec("6. RENOVAÇÃO DE RELATÓRIO", [
-                ("PRAZO EXIGIDO PARA REVISÃO", PRAZO_RENOVAÇÃO),
+            make_sec("6. RENOVAÇÃO DE RELATÓRIO", [
+                ("PRAZO EXIGIDO PARA REVISÃO", PRAZO_RENOVAÇÃO, "PRAZO_RENOVAÇÃO"),
                 ("PRÓXIMA ATUALIZAÇÃO RECOMENDADA", PROXIMA_ATUALIZACAO)
             ])
 
-            # RODAPÉ CENTRALIZADO
-            ft = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
-            try:
-                b_f = draw.textbbox((0, 0), ft, font=f_footer)
-                x_f = (W - (b_f[2] - b_f[0])) / 2
-            except Exception: x_f = 250
-            draw.text((x_f, 2180), ft, fill='#888888', font=f_footer)
+            # RODAPÉ
+            story.append(Spacer(1, 10))
+            ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
+            story.append(Paragraph(ft_text, style_footer))
 
-            # EXPORTAÇÃO
-            pdf_buffer = io.BytesIO()
-            img.save(pdf_buffer, format='PDF', resolution=300.0)
-            pdf_bytes = pdf_buffer.getvalue()
+            doc.build(story)
+            pdf_bytes = buffer.getvalue()
 
-            st.success("✅ Relatório formatado e gerado com sucesso!")
+            st.success("✅ Relatório Vetorial PDF de Altíssima Resolução Gerado!")
             st.download_button(
                 label="📥 Baixar Relatório PDF Oficial (BKS/BKSre)",
                 data=pdf_bytes,
