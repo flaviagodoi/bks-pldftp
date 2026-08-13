@@ -156,7 +156,7 @@ with st.container():
     
     col1, col2 = st.columns(2)
     with col1:
-        nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: Alexandre de Moraes")
+        nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: João da Silva")
     with col2:
         cpf_input = st.text_input("👉 CPF do Pesquisado", placeholder="Ex: 000.000.000-00")
     
@@ -177,7 +177,7 @@ if btn_pesquisar:
             partes_nome = nome_limpo.split()
             primeiro_ultimo = f"{partes_nome[0]} {partes_nome[-1]}" if len(partes_nome) > 1 else nome_limpo
             
-            # QUERIES OTIMIZADAS PARA ABRANGER PODER JUDICIÁRIO, EXECUTIVO E LEGISLATIVO
+            # QUERIES ABRANGENTES
             queries = [
                 f'"{nome_limpo}" "PEP" OR "politico" OR "ministro" OR "STF" OR "juiz" OR "cargo"',
                 f'"{nome_limpo}" "STF" OR "Supremo Tribunal" OR "Ministro" OR "TSE" OR "Tribunal"',
@@ -194,33 +194,32 @@ if btn_pesquisar:
             except Exception:
                 res_web = "Busca concluída."
 
-            # Normaliza todo o texto retornado para comparação flexível
+            # Normalização para verificação precisa
             texto_l = normalizar_texto(res_web + " " + nome_limpo)
             
-            # DICIONÁRIO EXPANDIDO DE TERMOS PEP (Norma COAF/Bacen/SUSEP)
+            # DICIONÁRIO DE TERMOS PEP (Generico/Regulatório COAF/Bacen/SUSEP)
             termos_pep = [
                 "ministro", "stf", "supremo tribunal", "magistrado", "desembargador",
                 "juiz", "tse", "tcu", "procurador", "promotor",
                 "vice-prefeito", "prefeito", "deputado", "senador", "governador", 
-                "secretario", "vereador", "candidato", "eleicao", "partido", "politico",
-                "alexandre de moraes", "moraes", "gaudencio", "lucena"
+                "secretario", "vereador", "candidato", "eleicao", "partido", "politico"
             ]
             
-            # Detecção via palavras-chave
-            detec_pep = any(term in texto_l for term in termos_pep) or any(term in nome_norm for term in ["moraes", "alexandre de moraes"])
+            # Detecção de PEP
+            detec_pep = any(term in texto_l for term in termos_pep)
             
             if detec_pep:
-                if "stf" in texto_l or "supremo tribunal" in texto_l or "moraes" in texto_l or "ministro" in texto_l:
-                    cargo_detectado = "Ministro do Supremo Tribunal Federal / Magistrado"
-                    orgao_detectado = "Poder Judiciário / STF"
+                if "stf" in texto_l or "supremo tribunal" in texto_l or "ministro" in texto_l or "magistrado" in texto_l:
+                    cargo_detectado = "Ministro / Magistrado de Corte Superior"
+                    orgao_detectado = "Poder Judiciário / Tribunal Superior"
                     detalhe_cargo = "Membro de Tribunal Superior / Notória Exposição Pública (PEP)"
-                elif "vice-prefeito" in texto_l or "prefeito" in texto_l or "lucena" in texto_l or "gaudencio" in texto_l:
+                elif "vice-prefeito" in texto_l or "prefeito" in texto_l:
                     cargo_detectado = "Ex-Vice-Prefeito / Gestor Político"
                     orgao_detectado = "Poder Executivo Municipal / Mandato Eletivo"
                     detalhe_cargo = "Agente Político / Notória Exposição Pública"
-                elif "deputado" in texto_l or "senador" in texto_l:
-                    cargo_detectado = "Parlamentar (Senador/Deputado)"
-                    orgao_detectado = "Poder Legislativo"
+                elif "deputado" in texto_l or "senador" in texto_l or "governador" in texto_l:
+                    cargo_detectado = "Parlamentar / Agente Político Eletivo"
+                    orgao_detectado = "Poder Legislativo / Executivo"
                     detalhe_cargo = "Agente Político Eletivo"
                 else:
                     cargo_detectado = "Agente Político / Exposição Pública"
