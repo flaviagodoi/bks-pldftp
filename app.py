@@ -120,7 +120,7 @@ with st.container():
     
     col1, col2 = st.columns(2)
     with col1:
-        nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: Gaudêncio Gonçalves de Lucena")
+        nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: João da Silva")
     with col2:
         cpf_input = st.text_input("👉 CPF do Pesquisado", placeholder="Ex: 000.000.000-00")
     
