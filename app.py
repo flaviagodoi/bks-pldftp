@@ -60,7 +60,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             partes_nome = nome_limpo.split()
             primeiro_ultimo = f"{partes_nome[0]} {partes_nome[-1]}" if len(partes_nome) > 1 else nome_limpo
             
-            # Busca variada para cobrir nomes compostos e apelidos políticos
             queries = [
                 f'"{nome_limpo}" político OR "vice-prefeito" OR prefeito OR deputado OR senador OR ministro OR juiz',
                 f'"{primeiro_ultimo}" "vice-prefeito" OR prefeito OR político OR eleição OR ceará OR fortaleza',
@@ -80,7 +79,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             # 2. ENQUADRAMENTO AMPLIADO DE DADOS
             texto_l = res_web.lower() + " " + nome_limpo.lower()
             
-            # Checagem de Termos Políticos e Nomes Específicos
             termos_pep = [
                 "vice-prefeito", "prefeito", "ministro", "stf", "deputado", 
                 "senador", "governador", "juiz", "desembargador", "secretário", 
@@ -154,10 +152,11 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             style_sec = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white)
             style_lbl = ParagraphStyle('Label', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=9, textColor=colors.HexColor('#555555'))
             style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor('#212529'))
+            style_badge_txt = ParagraphStyle('BadgeTxt', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.5, leading=9, alignment=TA_CENTER, textColor=colors.white)
             style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
             style_footer = ParagraphStyle('Footer', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#777777'))
 
-            # FORMATADOR DE TARJAS COLORIDAS (BADGES COM FUNDO E LETRA BRANCA)
+            # FORMATADOR DE TARJAS COLORIDAS COMPACTAS (APENAS SOBRE A PALAVRA)
             def format_val(key, text):
                 u = text.strip().upper()
                 if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO']:
@@ -167,16 +166,18 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                     elif u in ['MÉDIO RISCO']:
                         bg_col = "#ffc107" # Amarelo
 
-                    # Tabela pequena interna simulando a caixa arredondada
-                    txt_p = Paragraph(f'<font color="#FFFFFF"><b>&nbsp;{text}&nbsp;</b></font>', style_val)
-                    t_badge = Table([[txt_p]], colWidths=[None])
+                    txt_p = Paragraph(text, style_badge_txt)
+                    
+                    # Cálculo proporcional de largura do badge ajustado ao texto
+                    calc_w = max(len(text) * 6.5, 45)
+                    t_badge = Table([[txt_p]], colWidths=[calc_w])
                     t_badge.setStyle(TableStyle([
                         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor(bg_col)),
-                        ('LEFTPADDING', (0,0), (-1,-1), 6),
-                        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-                        ('TOPPADDING', (0,0), (-1,-1), 2),
-                        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-                        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                        ('TOPPADDING', (0,0), (-1,-1), 2.5),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+                        ('LEFTPADDING', (0,0), (-1,-1), 4),
+                        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                     ]))
                     return t_badge
@@ -210,12 +211,11 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             ]))
             story.append(t_header)
 
-            # ESPAÇO A MAIS ANTES DO TÍTULO
             story.append(Spacer(1, 16))
 
-            # B. TÍTULO E METADADOS (SEM LINHA DA DATA DE CONSULTA)
+            # B. TÍTULO E METADADOS (COM LINHA DE ESPAÇO ATÉ A PRIMEIRA CAIXA CINZA)
             story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
-            story.append(Spacer(1, 8))
+            story.append(Spacer(1, 10)) # Espaço do título para a primeira linha cinza
 
             meta_table_data = [
                 [Paragraph("Emissor: Gemini AI Regulatory Assistant", style_meta_val)],
@@ -232,7 +232,6 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             ]))
             story.append(t_meta)
 
-            # ESPAÇO A MAIS ANTES DO PRIMEIRO TÓPICO
             story.append(Spacer(1, 16))
 
             # FUNÇÃO PARA CRIAR SEÇÕES DE TABELA VETORIAL
@@ -307,12 +306,12 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ("PRÓXIMA ATUALIZAÇÃO RECOMENDADA", PROXIMA_ATUALIZACAO)
             ])
 
-            # C. ESPAÇO EXTRA A MAIS E DATA/HORÁRIO DE EMISSÃO
+            # C. ESPAÇAMENTO E DATA/HORÁRIO
             story.append(Spacer(1, 22))
             hora_agora = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
             story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora}", style_date))
 
-            # DESENHO DO RODAPÉ NO LIMITE DA FOLHA (CANVAS RODAPÉ)
+            # RODAPÉ FIXO NO FINAL DA FOLHA
             def add_footer(canvas, doc):
                 canvas.saveState()
                 ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
