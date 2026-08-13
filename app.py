@@ -96,7 +96,8 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 DETALHE_EXPOSICAO = detalhe_cargo
                 RISCO_FINAL = "ALTO RISCO"
                 PRAZO_RENOVAÇÃO = "06 MESES"
-                APONTAMENTOS = "RESTRIÇÃO"
+                SITUACAO_CPF = "REGULAR"
+                APONTAMENTOS = "RESTRIÇÃO: Exposição ativa por função pública / PEP"
                 PERFIL_OP = "Agente Político / Exposição Pública"
                 PARECER = f"Identificado histórico/atuação como {cargo_detectado} junto ao {orgao_detectado}. Exige governança reforçada e monitoramento contínuo."
                 PROXIMA_ATUALIZACAO = "13/02/2027"
@@ -108,33 +109,33 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 DETALHE_EXPOSICAO = "Sem histórico de exposição pública"
                 RISCO_FINAL = "BAIXO"
                 PRAZO_RENOVAÇÃO = "01 ANO"
-                APONTAMENTOS = "SEM RESTRIÇÕES"
+                SITUACAO_CPF = "REGULAR"
+                APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta nas bases abertas"
                 PERFIL_OP = "Profissional Independente"
                 PARECER = "Consulta realizada em bases públicas de transparência. Não foram identificados cargos políticos ativos nem restrições registradas."
                 PROXIMA_ATUALIZACAO = "13/08/2027"
 
-            # 3. CONSTRUÇÃO DO PDF (CANVAS)
-            W, H = 1240, 1754
+            # 3. CONSTRUÇÃO DO PDF EM ALTA RESOLUÇÃO (CANVAS AMPLIA)
+            W, H = 1600, 2260
             img = Image.new('RGB', (W, H), 'white')
             draw = ImageDraw.Draw(img)
 
-            # CARREGAMENTO INTELIGENTE DE FONTES COM SUPORTE COMPLETO A ACENTOS
+            # CARREGAMENTO DE FONTES MAIORES
             f_title = f_sec = f_lbl = f_val = f_badge = f_footer = ImageFont.load_default()
             font_paths = [
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-                "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
             ]
             for p in font_paths:
                 if os.path.exists(p):
                     try:
-                        f_title = ImageFont.truetype(p, 23)
-                        f_sec = ImageFont.truetype(p, 17)
-                        f_lbl = ImageFont.truetype(p, 13)
-                        f_val = ImageFont.truetype(p, 15)
-                        f_badge = ImageFont.truetype(p, 14)
-                        f_footer = ImageFont.truetype(p, 11)
+                        f_title = ImageFont.truetype(p, 30)
+                        f_sec = ImageFont.truetype(p, 22)
+                        f_lbl = ImageFont.truetype(p, 18)
+                        f_val = ImageFont.truetype(p, 20)
+                        f_badge = ImageFont.truetype(p, 19)
+                        f_footer = ImageFont.truetype(p, 15)
                         break
                     except Exception: pass
 
@@ -142,15 +143,14 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             C_BLUE, C_GREEN, C_RED, C_YEL = '#0056b3', '#28a745', '#dc3545', '#ffc107'
             C_GREY_BG, C_BORDER, C_DARK, C_LABEL = '#f4f6f8', '#d0d7de', '#212529', '#555555'
 
-            BADGES = {
-                'NÃO': (C_GREEN, '#FFF'), 'BAIXO': (C_GREEN, '#FFF'), '01 ANO': (C_GREEN, '#FFF'),
-                'REGULAR': (C_GREEN, '#FFF'), 'ALTO': (C_GREEN, '#FFF'), 'SEM RESTRIÇÕES': (C_GREEN, '#FFF'),
-                'NÃO CONSTA': (C_GREEN, '#FFF'),
-                'SIM': (C_RED, '#FFF'), 'ALTO RISCO': (C_RED, '#FFF'), '06 MESES': (C_RED, '#FFF'),
-                'RESTRIÇÃO': (C_RED, '#FFF'), 'IRREGULAR': (C_RED, '#FFF')
+            # APENAS ESTES CAMPOS RECEBEM BALÕES COLORIDOS (BADGES)
+            BADGES_ONLY = {
+                'NÃO': (C_GREEN, '#FFF'), 'SIM': (C_RED, '#FFF'),
+                'BAIXO': (C_GREEN, '#FFF'), 'ALTO RISCO': (C_RED, '#FFF'), 'MÉDIO RISCO': (C_YEL, '#212529'),
+                '01 ANO': (C_GREEN, '#FFF'), '06 MESES': (C_RED, '#FFF')
             }
 
-            # DESENHA CABEÇALHO E LOGOS
+            # 4. CABEÇALHO COM LOGOS EM TAMANHO DUPLO
             has_l1, has_l2 = False, False
             for ext in ['.png', '.PNG', '.jpg', '.jpeg']:
                 p1 = f"logo_bks{ext}"
@@ -158,86 +158,94 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 if os.path.exists(p1) and not has_l1:
                     try:
                         l1 = Image.open(p1).convert("RGBA")
-                        l1.thumbnail((280, 85))
-                        img.paste(l1, (70, 35), l1)
+                        l1.thumbnail((420, 140))
+                        img.paste(l1, (90, 45), l1)
                         has_l1 = True
                     except Exception: pass
                 if os.path.exists(p2) and not has_l2:
                     try:
                         l2 = Image.open(p2).convert("RGBA")
-                        l2.thumbnail((280, 85))
-                        img.paste(l2, (W - 350, 35), l2)
+                        l2.thumbnail((420, 140))
+                        img.paste(l2, (W - 510, 45), l2)
                         has_l2 = True
                     except Exception: pass
 
             if not has_l1:
-                draw.rectangle([70, 35, 320, 90], fill='#003366')
-                draw.text((85, 53), "BKS CORRETORA", fill='white', font=f_sec)
+                draw.rectangle([90, 45, 450, 130], fill='#003366')
+                draw.text((110, 72), "BKS CORRETORA", fill='white', font=f_sec)
             if not has_l2:
-                draw.rectangle([W - 320, 35, W - 70, 90], fill='#0056b3')
-                draw.text((W - 305, 53), "BKS RE RESSEGUROS", fill='white', font=f_sec)
+                draw.rectangle([W - 450, 45, W - 90, 130], fill='#0056b3')
+                draw.text((W - 430, 72), "BKS RE RESSEGUROS", fill='white', font=f_sec)
 
             # TÍTULO CENTRALIZADO
-            y_cursor = 135
+            y_cursor = 195
             txt_t = "RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)"
             try:
                 b_t = draw.textbbox((0, 0), txt_t, font=f_title)
                 x_t = (W - (b_t[2] - b_t[0])) / 2
-            except Exception: x_t = 250
+            except Exception: x_t = 300
             draw.text((x_t, y_cursor), txt_t, fill=C_BLUE, font=f_title)
 
             # METADADOS CENTRALIZADOS
-            y_cursor += 45
+            y_cursor += 60
             hoje = datetime.now().strftime('%d/%m/%Y')
             meta_lines = [
                 "Emissor: Gemini AI Regulatory Assistant",
                 f"Data da Consulta: {hoje}",
                 "Status: CONCLUÍDO   |   Classificação: CONFIDENCIAL"
             ]
-            draw.rectangle([70, y_cursor, W - 70, y_cursor + 115], fill='#f8f9fa', outline=C_BORDER)
-            my_y = y_cursor + 16
+            draw.rectangle([90, y_cursor, W - 90, y_cursor + 140], fill='#f8f9fa', outline=C_BORDER)
+            my_y = y_cursor + 20
             for line in meta_lines:
                 try:
                     b_m = draw.textbbox((0, 0), line, font=f_val)
                     x_m = (W - (b_m[2] - b_m[0])) / 2
-                except Exception: x_m = 400
+                except Exception: x_m = 500
                 draw.text((x_m, my_y), line, fill='#333333', font=f_val)
-                my_y += 28
+                my_y += 36
             
-            y_cursor += 140
+            y_cursor += 175
 
-            # CÉLULAS E SEÇÕES
-            def draw_cell(x, y, label, val_text, custom_h=80):
-                draw.text((x + 15, y + 8), label, fill=C_LABEL, font=f_lbl)
-                bg, fg = BADGES.get(str(val_text).strip().upper(), (None, C_DARK))
-                vy = y + 32
-                if bg:
-                    draw.rounded_rectangle([x + 15, vy - 2, x + 185, vy + 32], radius=4, fill=bg)
-                    draw.text((x + 25, vy + 4), str(val_text), fill=fg, font=f_badge)
+            # CÉLULAS E SEÇÕES COM ALTURA E ESPAÇAMENTO EXPANDIDOS
+            def draw_cell(x, y, label, val_text, custom_h=105):
+                draw.text((x + 20, y + 10), label, fill=C_LABEL, font=f_lbl)
+                val_str = str(val_text).strip()
+                bg_fg = BADGES_ONLY.get(val_str.upper(), None)
+                vy = y + 42
+                
+                if bg_fg:
+                    bg, fg = bg_fg
+                    draw.rounded_rectangle([x + 20, vy - 2, x + 240, vy + 42], radius=6, fill=bg)
+                    draw.text((x + 35, vy + 6), val_str, fill=fg, font=f_badge)
                 else:
-                    lines = textwrap.wrap(str(val_text), width=40)
+                    lines = textwrap.wrap(val_str, width=38)
                     for l in lines[:3]:
-                        draw.text((x + 15, vy), l, fill=C_DARK, font=f_val)
-                        vy += 22
+                        draw.text((x + 20, vy), l, fill=C_DARK, font=f_val)
+                        vy += 28
 
-            def draw_sec(title, fields, custom_h=80):
+            def draw_sec(title, fields, custom_h=105):
                 global y_cursor
-                draw.rectangle([70, y_cursor, W - 70, y_cursor + 32], fill=C_BLUE)
-                draw.text((85, y_cursor + 6), title, fill='white', font=f_sec)
-                y_cursor += 32
-                cw = (W - 140) / 2
+                draw.rectangle([90, y_cursor, W - 90, y_cursor + 42], fill=C_BLUE)
+                draw.text((110, y_cursor + 8), title, fill='white', font=f_sec)
+                y_cursor += 42
+                cw = (W - 180) / 2
                 for i in range(0, len(fields), 2):
                     f1 = fields[i]
                     f2 = fields[i+1] if i+1 < len(fields) else None
-                    draw.rectangle([70, y_cursor, 70 + cw, y_cursor + custom_h], fill=C_GREY_BG, outline=C_BORDER)
-                    draw_cell(70, y_cursor, f1[0], f1[1], custom_h)
+                    
+                    # Desenha primeira coluna
+                    draw.rectangle([90, y_cursor, 90 + cw, y_cursor + custom_h], fill=C_GREY_BG, outline=C_BORDER)
+                    draw_cell(90, y_cursor, f1[0], f1[1], custom_h)
+                    
+                    # Desenha segunda coluna
                     if f2:
-                        draw.rectangle([70 + cw, y_cursor, W - 70, y_cursor + custom_h], fill=C_GREY_BG, outline=C_BORDER)
-                        draw_cell(70 + cw, y_cursor, f2[0], f2[1], custom_h)
+                        draw.rectangle([90 + cw, y_cursor, W - 90, y_cursor + custom_h], fill=C_GREY_BG, outline=C_BORDER)
+                        draw_cell(90 + cw, y_cursor, f2[0], f2[1], custom_h)
+                    
                     y_cursor += custom_h
-                y_cursor += 14
+                y_cursor += 18
 
-            # RENDERING DAS 6 SEÇÕES OBRIGATÓRIAS
+            # RENDERING DAS 6 SEÇÕES COM MUDANÇAS SOLICITADAS
             draw_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
                 ("NOME COMPLETO", nome_input.upper()),
                 ("CPF", cpf_input),
@@ -250,7 +258,7 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
                 ("STATUS POR VÍNCULO", PEP_VINCULO),
                 ("ÓRGÃO / ENTIDADE DE ATUAÇÃO", ORGAO_ENTIDADE),
                 ("ENQUADRAMENTO DO CARGO", DETALHE_EXPOSICAO)
-            ], custom_h=85)
+            ], custom_h=115)
 
             draw_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
                 ("RELAÇÃO 2º GRAU PEP", "Sem vínculos mapeados"),
@@ -260,14 +268,14 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             draw_sec("4. PERFIL EMPRESARIAL E SETOR DE ATUAÇÃO (RISCO OPERACIONAL)", [
                 ("PERFIL OPERACIONAL", PERFIL_OP),
                 ("REGIÃO DE ATUAÇÃO", "Brasil"),
-                ("SITUAÇÃO CADASTRAL CNPJ", "REGULAR"),
-                ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
-            ])
+                ("SITUAÇÃO CADASTRAL CPF", SITUACAO_CPF), # <-- MUDADO PARA CPF
+                ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS) # <-- COM MOTIVO SUCINTO
+            ], custom_h=115)
 
             draw_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
                 ("NÍVEL DE RISCO FINAL", RISCO_FINAL),
                 ("PARECER DE CONFORMIDADE", PARECER)
-            ], custom_h=105)
+            ], custom_h=135)
 
             draw_sec("6. RENOVAÇÃO DE RELATÓRIO", [
                 ("PRAZO EXIGIDO PARA REVISÃO", PRAZO_RENOVAÇÃO),
@@ -279,8 +287,8 @@ if st.button("🔎 Pesquisar na Web e Gerar Relatório PDF", type="primary"):
             try:
                 b_f = draw.textbbox((0, 0), ft, font=f_footer)
                 x_f = (W - (b_f[2] - b_f[0])) / 2
-            except Exception: x_f = 150
-            draw.text((x_f, 1680), ft, fill='#888888', font=f_footer)
+            except Exception: x_f = 250
+            draw.text((x_f, 2180), ft, fill='#888888', font=f_footer)
 
             # EXPORTAÇÃO
             pdf_buffer = io.BytesIO()
