@@ -44,15 +44,9 @@ def buscar_wikipedia(nome):
     return ""
 
 # -----------------------------------------------------------------------------
-# 👥 CADASTRO DE PERFIS DE ACESSO
+# 🔑 CONFIGURAÇÃO DE ACESSO DADOS DE LOGIN
 # -----------------------------------------------------------------------------
 SENHA_GERAL = "Bks2026@"
-
-ADMINISTRADORES = {
-    "flavia.godoi@bks.com.br": {"nome": "Flávia Godoi", "perfil": "Administrador"},
-    "neto.duarte@bks.com.br": {"nome": "Neto Duarte", "perfil": "Administrador"},
-    "thaina.oliveira@bks.com.br": {"nome": "Thainá de Oliveira", "perfil": "Administrador"}
-}
 
 st.set_page_config(
     page_title="PLD/FTP - BKS Compliance", 
@@ -73,11 +67,11 @@ st.markdown("""
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
-if "usuario_logado" not in st.session_state:
-    st.session_state.usuario_logado = None
+if "email_logado" not in st.session_state:
+    st.session_state.email_logado = None
 
 # -----------------------------------------------------------------------------
-# 🔑 TELA DE LOGIN
+# 🔑 TELA DE LOGIN DIRETA
 # -----------------------------------------------------------------------------
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
@@ -88,7 +82,7 @@ if not st.session_state.autenticado:
         st.caption("Sistema de Conformidade e Prevenção à Lavagem de Dinheiro")
         st.markdown("---")
         
-        email_digitado = st.text_input("📧 E-mail de Usuário:", placeholder="seu.nome@bks.com.br").strip().lower()
+        email_digitado = st.text_input("📧 E-mail do Operador:", placeholder="seu.nome@bks.com.br").strip().lower()
         senha_digitada = st.text_input("🔑 Senha de Acesso:", type="password")
         
         if st.button("🔓 Entrar no Sistema", use_container_width=True):
@@ -96,14 +90,7 @@ if not st.session_state.autenticado:
                 if not email_digitado:
                     email_digitado = "operacao@bks.com.br"
                 
-                if email_digitado in ADMINISTRADORES:
-                    dados_user = ADMINISTRADORES[email_digitado]
-                else:
-                    nome_formatado = email_digitado.split("@")[0].replace(".", " ").title()
-                    dados_user = {"nome": nome_formatado, "perfil": "Usuário Operacional"}
-                
                 st.session_state.autenticado = True
-                st.session_state.usuario_logado = dados_user
                 st.session_state.email_logado = email_digitado
                 st.rerun()
             else:
@@ -113,8 +100,6 @@ if not st.session_state.autenticado:
 # -----------------------------------------------------------------------------
 # 🛡️ BARRA LATERAL (SIDEBAR)
 # -----------------------------------------------------------------------------
-user_info = st.session_state.usuario_logado
-
 with st.sidebar:
     if os.path.exists("logo_bks.png"):
         st.image("logo_bks.png", use_container_width=True)
@@ -124,14 +109,7 @@ with st.sidebar:
     st.markdown("### 🟢 Status: **Operacional**")
     st.caption("BKS Corretora & BKS Re Resseguros")
     st.markdown("---")
-    st.markdown(f"👤 **Nome:** {user_info['nome']}")
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
-    
-    if user_info.get("perfil") == "Administrador":
-        st.markdown("⭐ **Nível:** `Administrador`")
-    else:
-        st.markdown("👤 **Nível:** `Usuário Operacional`")
-        
     st.markdown("---")
     st.markdown("### 🏛️ Consultas Receita Federal")
     st.link_button("📄 Consulta CPF (Receita)", "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp", use_container_width=True)
@@ -140,7 +118,6 @@ with st.sidebar:
     
     if st.button("🔒 Sair do Sistema", use_container_width=True):
         st.session_state.autenticado = False
-        st.session_state.usuario_logado = None
         st.session_state.email_logado = None
         st.rerun()
 
@@ -353,7 +330,7 @@ if btn_pesquisar:
             story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
             story.append(Spacer(1, 10))
 
-            emissor_nome = f"Operador: {user_info['nome']} ({st.session_state.email_logado}) | Perfil: {user_info.get('perfil')}"
+            emissor_nome = f"Operador: {st.session_state.email_logado}"
             meta_table_data = [
                 [Paragraph(f"Emissor: {emissor_nome}", style_meta_val)],
                 [Paragraph("Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL", style_meta_val)]
