@@ -23,17 +23,12 @@ def normalizar_texto(txt):
     return re.sub(r'[^a-zA-Z0-9\s]', ' ', sem_acento).lower().strip()
 
 def identificar_arquivo_pep():
-    """
-    Localiza dinamicamente qualquer arquivo de planilha no diretório 
-    que seja 'pep_oficial.csv', 'pep_oficial.txt' ou contenha 'pep' no nome.
-    """
+    """Localiza dinamicamente o arquivo da base PEP."""
     try:
-        # Prioriza o nome padrão oficial
         for arq in ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]:
             if os.path.exists(arq):
                 return arq
 
-        # Busca flexível por qualquer arquivo com 'pep'
         for arq in os.listdir("."):
             nome_baixo = arq.lower()
             if "pep" in nome_baixo and (nome_baixo.endswith(".csv") or nome_baixo.endswith(".txt")):
@@ -44,18 +39,20 @@ def identificar_arquivo_pep():
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
     """
-    Busca o indivíduo na planilha oficial localizada considerando
-    nomes de colunas reais e CPFs mascarados por LGPD (***.123.456-**).
+    Busca com filtro anti-homônimo:
+    Exige correspondência do NOME COMPLETO + MIOLO DO CPF (6 dígitos).
     """
     caminho_final = identificar_arquivo_pep()
-
     if not caminho_final:
         return None
 
     cpf_numeros = re.sub(r'\D', '', cpf_input)
-    # Extrai os 6 dígitos centrais do CPF digitado (ex: de 12381031145 pega 810311)
+    # Extrai os 6 dígitos centrais do CPF digitado (ex: de 12381031145 extrai 810311)
     miolo_cpf = cpf_numeros[3:9] if len(cpf_numeros) == 11 else ""
     nome_norm = normalizar_texto(nome_input)
+
+    if not nome_norm or len(nome_norm) < 5:
+        return None
 
     try:
         with open(caminho_final, mode='r', encoding='utf-8', errors='ignore') as f:
@@ -65,21 +62,20 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
             reader = csv.DictReader(f, delimiter=sep)
             for row in reader:
-                # Trata variações de nomes de colunas do Governo
                 nome_pep_row = row.get('Nome_PEP') or row.get('Nome') or row.get('NOME_PEP') or ""
                 nome_pep_norm = normalizar_texto(nome_pep_row)
                 
                 cpf_row = row.get('CPF') or row.get('Cpf') or ""
                 cpf_row_numeros = re.sub(r'\D', '', cpf_row) # Ex: 810311
 
-                # 1. Checagem por Nome idêntico/contido
-                match_nome = (nome_norm == nome_pep_norm) or (len(nome_norm) > 8 and nome_norm in nome_pep_norm)
+                # 1. Checagem por NOME COMPLETO EXATO
+                match_nome_exato = (nome_norm == nome_pep_norm)
                 
-                # 2. Checagem pelo miolo do CPF (6 dígitos centrais)
+                # 2. Checagem por MIOLO DO CPF
                 match_cpf_miolo = (miolo_cpf != "" and miolo_cpf in cpf_row_numeros)
 
-                # Valida se achou por Nome e se o miolo do CPF é compatível
-                if match_nome and (match_cpf_miolo or miolo_cpf == "" or cpf_row_numeros == ""):
+                # REGRA DE SEGURANÇA: Só aceita se O NOME FOR EXATO E O MIOLO DO CPF BATER
+                if match_nome_exato and (match_cpf_miolo or cpf_row_numeros == ""):
                     cargo = row.get('Descrição_Função') or row.get('Função') or row.get('Cargo') or row.get('DESCRICAO_FUNCAO') or "Agente Político / Função Pública (PEP Registrado)"
                     orgao = row.get('Nome_Órgão') or row.get('Órgão') or row.get('Orgao') or row.get('NOME_ORGAO') or "Administração Pública / Cadastro Oficial CGU"
                     
@@ -186,7 +182,6 @@ with st.sidebar:
     # STATUS DA PLANILHA OFICIAL LOCAL COM CHECAGEM DE VALIDADE (30 DIAS)
     arquivo_encontrado = identificar_arquivo_pep()
     if arquivo_encontrado:
-        # Pega a data da última modificação do arquivo no servidor
         tempo_modificacao = os.path.getmtime(arquivo_encontrado)
         data_arquivo = datetime.fromtimestamp(tempo_modificacao)
         dias_desde_atualizacao = (datetime.now() - data_arquivo).days
@@ -230,7 +225,7 @@ with st.container():
     btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
 # -----------------------------------------------------------------------------
-# ⚙️ EXECUÇÃO DA CONSULTA HÍBRIDA (1. BASE LOCAL CGU | 2. WEB)
+# ⚙️ EXECUÇÃO DA CONSULTA HÍBRIDA
 # -----------------------------------------------------------------------------
 if btn_pesquisar:
     if not nome_input.strip() or not cpf_input.strip():
@@ -240,7 +235,7 @@ if btn_pesquisar:
             
             nome_limpo = nome_input.strip()
             
-            # 1ª CAMADA: CONSULTA NA PLANILHA/CSV LOCAL DA CGU
+            # 1ª CAMADA: CONSULTA RIGOROSA NA PLANILHA LOCAL
             match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
             
             if match_planilha:
@@ -250,67 +245,46 @@ if btn_pesquisar:
                 orgao_detectado = match_planilha["orgao"]
                 detalhe_cargo = match_planilha["detalhe"]
             else:
-                # 2ª CAMADA: SE NÃO ACHAR NA PLANILHA, BUSCA NA WIKIPÉDIA E DUCKDUCKGO
+                # 2ª CAMADA: SE NÃO ACHAR NA PLANILHA, BUSCA RIGOROSA NA WEB
                 origem_identificacao = "Pesquisa em Portais Públicos e Notícias Web"
                 wiki_text = buscar_wikipedia(nome_limpo)
                 
                 res_web = wiki_text + "\n"
                 queries_simples = [
-                    f'"{nome_limpo}"',
-                    f'{nome_limpo} politico cargo governo',
-                    f'{nome_limpo} ministro juiz deputado prefeito senador'
+                    f'"{nome_limpo}" cargo politico governo',
+                    f'"{nome_limpo}" ministro senador deputado prefeito'
                 ]
                 
                 try:
                     with DDGS() as ddgs:
                         for q in queries_simples:
-                            results = list(ddgs.text(q, max_results=3))
+                            results = list(ddgs.text(q, max_results=2))
                             for r in results:
                                 res_web += f"{r.get('title', '')} {r.get('body', '')}\n"
                 except Exception:
                     pass
 
-                # NORMALIZAÇÃO DO TEXTO WEB
                 texto_l = normalizar_texto(res_web)
+                nome_norm_check = normalizar_texto(nome_limpo)
                 
-                TERMOS_JUDICIARIO = ["ministro", "stf", "stj", "tst", "tse", "stm", "desembargador", "juiz", "magistrado"]
-                TERMOS_EXECUTIVO = ["presidente", "vice presidente", "governador", "vice governador", "prefeito", "vice prefeito", "secretario", "ministro de estado"]
-                TERMOS_LEGISLATIVO = ["senador", "deputado federal", "deputado estadual", "deputado distrital", "vereador"]
-                TERMOS_CONTROLE = ["procurador", "promotor", "tcu", "tce", "tcm", "tribunal de contas", "defensor publico", "pgr"]
-                TERMOS_MILITAR_DIPLOMACIA = ["general", "almirante", "brigadeiro", "embaixador", "diplomata"]
-                TERMOS_GERAIS = ["politico", "partido", "eleicao", "candidato", "mandato", "ex prefeito", "ex ministro", "ex governador", "pep"]
+                # TERMOS ESPECÍFICOS E RIGOROSOS DE CARGO PEP (Sem termos genéricos)
+                TERMOS_JUDICIARIO = ["ministro do stf", "ministro do stj", "ministro do tst", "desembargador federal", "juiz federal"]
+                TERMOS_EXECUTIVO = ["presidente da republica", "governador do estado", "prefeito de", "ministro de estado", "secretario de estado"]
+                TERMOS_LEGISLATIVO = ["senador da republica", "deputado federal", "deputado estadual", "vereador de"]
+                TERMOS_CONTROLE = ["procurador geral", "membro do tribunal de contas", "ministro do tcu"]
 
-                TODOS_TERMOS_PEP = TERMOS_JUDICIARIO + TERMOS_EXECUTIVO + TERMOS_LEGISLATIVO + TERMOS_CONTROLE + TERMOS_MILITAR_DIPLOMACIA + TERMOS_GERAIS
+                TODOS_TERMOS_PEP = TERMOS_JUDICIARIO + TERMOS_EXECUTIVO + TERMOS_LEGISLATIVO + TERMOS_CONTROLE
                 
-                termo_encontrado = None
-                for term in TODOS_TERMOS_PEP:
-                    if term in texto_l:
-                        termo_encontrado = term
-                        break
-                
-                detec_pep = termo_encontrado is not None
-                
-                if detec_pep:
-                    if any(t in texto_l for t in TERMOS_JUDICIARIO):
-                        cargo_detectado = "Ministro / Magistrado de Corte Superior ou Tribunal"
-                        orgao_detectado = "Poder Judiciário"
-                        detalhe_cargo = "Membro do Poder Judiciário / Notória Exposição Pública (PEP)"
-                    elif any(t in texto_l for t in TERMOS_EXECUTIVO):
-                        cargo_detectado = "Agente Político do Executivo (Presidente / Governador / Prefeito / Secretário)"
-                        orgao_detectado = "Poder Executivo"
-                        detalhe_cargo = "Gestor Político / Notória Exposição Pública"
-                    elif any(t in texto_l for t in TERMOS_LEGISLATIVO):
-                        cargo_detectado = "Parlamentar (Senador / Deputado / Vereador)"
-                        orgao_detectado = "Poder Legislativo"
-                        detalhe_cargo = "Agente Político Eletivo"
-                    elif any(t in texto_l for t in TERMOS_CONTROLE):
-                        cargo_detectado = "Procurador / Conselheiro de Tribunal de Contas / Órgão de Controle"
-                        orgao_detectado = "Ministério Público / Tribunal de Contas"
-                        detalhe_cargo = "Agente de Fiscalização e Controle"
-                    else:
-                        cargo_detectado = "Agente Político / Exposição Pública Identificada"
-                        orgao_detectado = "Administração Pública / Órgão Governamental"
-                        detalhe_cargo = "Histórico de Atuação Pública / PEP Enquadrado"
+                # Só valida na web se o NOME COMPLETO estritamente aparecer no texto junto com o cargo
+                detec_pep = False
+                if nome_norm_check in texto_l:
+                    for term in TODOS_TERMOS_PEP:
+                        if term in texto_l:
+                            detec_pep = True
+                            cargo_detectado = f"Agente Político / Exposição Pública ({term.title()})"
+                            orgao_detectado = "Administração Pública"
+                            detalhe_cargo = "Histórico Mapeado em Fontes Públicas Web"
+                            break
 
             # -----------------------------------------------------------------
             # ATRIBUIÇÃO DOS RESULTADOS FINAIS
@@ -352,7 +326,7 @@ if btn_pesquisar:
                 st.success("🟢 **RESULTADO: NADA CONSTA (NÃO É PEP)**")
 
             # -----------------------------------------------------------------
-            # 3. CONSTRUÇÃO DO PDF VETORIAL COM REPORTLAB
+            # CONSTRUÇÃO DO PDF VETORIAL COM REPORTLAB
             # -----------------------------------------------------------------
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(
