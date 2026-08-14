@@ -22,18 +22,32 @@ def normalizar_texto(txt):
     sem_acento = "".join([c for c in nfkd if not unicodedata.combining(c)])
     return re.sub(r'[^a-zA-Z0-9\s]', ' ', sem_acento).lower().strip()
 
+def identificar_arquivo_pep():
+    """
+    Localiza dinamicamente qualquer arquivo de planilha no diretório 
+    que seja 'pep_oficial.csv', 'pep_oficial.txt' ou contenha 'pep' no nome.
+    """
+    try:
+        # Prioriza o nome padrão oficial
+        for arq in ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]:
+            if os.path.exists(arq):
+                return arq
+
+        # Busca flexível por qualquer arquivo com 'pep'
+        for arq in os.listdir("."):
+            nome_baixo = arq.lower()
+            if "pep" in nome_baixo and (nome_baixo.endswith(".csv") or nome_baixo.endswith(".txt")):
+                return arq
+    except Exception:
+        pass
+    return None
+
 def buscar_na_planilha_pep(nome_input, cpf_input):
     """
-    Busca o indivíduo no arquivo oficial TXT/CSV da CGU considerando
+    Busca o indivíduo na planilha oficial localizada considerando
     nomes de colunas reais e CPFs mascarados por LGPD (***.123.456-**).
     """
-    arquivos_possiveis = ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]
-    caminho_final = None
-    
-    for nome_arq in arquivos_possiveis:
-        if os.path.exists(nome_arq):
-            caminho_final = nome_arq
-            break
+    caminho_final = identificar_arquivo_pep()
 
     if not caminho_final:
         return None
@@ -72,7 +86,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
                     return {
                         "cargo": cargo,
                         "orgao": orgao,
-                        "detalhe": "Registrado na Base Oficial de PEPs do Governo Federal (CGU)"
+                        "detalhe": f"Registrado na Base Oficial ({caminho_final})"
                     }
     except Exception:
         pass
@@ -167,11 +181,22 @@ with st.sidebar:
     st.caption("BKS Corretora & BKS Re Resseguros")
     st.markdown("---")
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
+    st.markdown("---")
     
-    # STATUS DA PLANILHA OFICIAL LOCAL - À PROVA DE FALHAS
-    arquivos_possiveis = ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]
-    if any(os.path.exists(arq) for arq in arquivos_possiveis):
-        st.success("📁 **Base PEP Local:** Carregada e Ativa")
+    # STATUS DA PLANILHA OFICIAL LOCAL COM CHECAGEM DE VALIDADE (30 DIAS)
+    arquivo_encontrado = identificar_arquivo_pep()
+    if arquivo_encontrado:
+        # Pega a data da última modificação do arquivo no servidor
+        tempo_modificacao = os.path.getmtime(arquivo_encontrado)
+        data_arquivo = datetime.fromtimestamp(tempo_modificacao)
+        dias_desde_atualizacao = (datetime.now() - data_arquivo).days
+
+        if dias_desde_atualizacao > 30:
+            st.warning(f"⚠️ **Base PEP Local:** Atualização Necessária!\n(Arquivo de {data_arquivo.strftime('%d/%m/%Y')} - há {dias_desde_atualizacao} dias)")
+            st.caption("💡 *Recomendado baixar a nova base no Portal da Transparência (CGU) e atualizar no GitHub.*")
+        else:
+            st.success("📁 **Base PEP Local:** Carregada e Ativa")
+            st.caption(f"🗓️ *Última atualização: {data_arquivo.strftime('%d/%m/%Y')}*")
     else:
         st.info("🌐 **Base PEP Local:** Não enc. (Modo Web Ativo)")
 
@@ -220,7 +245,7 @@ if btn_pesquisar:
             
             if match_planilha:
                 detec_pep = True
-                origem_identificacao = "Base Oficial de PEPs (Arquivo Local CGU)"
+                origem_identificacao = f"Base Oficial de PEPs ({match_planilha['detalhe']})"
                 cargo_detectado = match_planilha["cargo"]
                 orgao_detectado = match_planilha["orgao"]
                 detalhe_cargo = match_planilha["detalhe"]
