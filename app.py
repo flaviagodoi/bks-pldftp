@@ -12,7 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🛠️ FUNÇÕES AUXILIARES DE NORMALIZAÇÃO E BUSCA DIVERSFICADA
+# 🛠️ FUNÇÕES AUXILIARES DE NORMALIZAÇÃO E BUSCA
 # -----------------------------------------------------------------------------
 def normalizar_texto(txt):
     """Remove acentos, caracteres especiais e converte para caixa baixa."""
@@ -44,14 +44,14 @@ def buscar_wikipedia(nome):
     return ""
 
 # -----------------------------------------------------------------------------
-# 👥 CADASTRO DE ADMINISTRADORES E CONFIGURAÇÃO DE SENHA
+# 👥 CADASTRO DE PERFIS DE ACESSO
 # -----------------------------------------------------------------------------
 SENHA_GERAL = "Bks2026@"
 
 ADMINISTRADORES = {
-    "flavia.godoi@bks.com.br": {"nome": "Flávia Godoi"},
-    "neto.duarte@bks.com.br": {"nome": "Neto Duarte"},
-    "thaina.oliveira@bks.com.br": {"nome": "Thainá de Oliveira"}
+    "flavia.godoi@bks.com.br": {"nome": "Flávia Godoi", "perfil": "Administrador"},
+    "neto.duarte@bks.com.br": {"nome": "Neto Duarte", "perfil": "Administrador"},
+    "thaina.oliveira@bks.com.br": {"nome": "Thainá de Oliveira", "perfil": "Administrador"}
 }
 
 st.set_page_config(
@@ -64,35 +64,10 @@ st.set_page_config(
 # ESTILIZAÇÃO CSS CUSTOMIZADA
 st.markdown("""
     <style>
-    .main {
-        background-color: #f8f9fa;
-    }
-    h1 {
-        color: #0056b3;
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        font-weight: 700;
-        margin-bottom: 0px;
-    }
-    div.stButton > button:first-child {
-        background-color: #0056b3;
-        color: white;
-        font-weight: bold;
-        border-radius: 6px;
-        border: none;
-        padding: 12px 24px;
-        transition: all 0.3s ease;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #003366;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    }
-    .link-card {
-        background-color: #ffffff;
-        border: 1px solid #d0d7de;
-        border-radius: 8px;
-        padding: 12px;
-        margin-top: 10px;
-    }
+    .main { background-color: #f8f9fa; }
+    h1 { color: #0056b3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; margin-bottom: 0px; }
+    div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 12px 24px; transition: all 0.3s ease; }
+    div.stButton > button:first-child:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -102,7 +77,7 @@ if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
 
 # -----------------------------------------------------------------------------
-# 🔑 TELA DE LOGIN FLEXÍVEL
+# 🔑 TELA DE LOGIN
 # -----------------------------------------------------------------------------
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
@@ -125,7 +100,7 @@ if not st.session_state.autenticado:
                     dados_user = ADMINISTRADORES[email_digitado]
                 else:
                     nome_formatado = email_digitado.split("@")[0].replace(".", " ").title()
-                    dados_user = {"nome": nome_formatado}
+                    dados_user = {"nome": nome_formatado, "perfil": "Usuário Operacional"}
                 
                 st.session_state.autenticado = True
                 st.session_state.usuario_logado = dados_user
@@ -151,12 +126,16 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(f"👤 **Nome:** {user_info['nome']}")
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
-    st.markdown("---")
     
+    if user_info.get("perfil") == "Administrador":
+        st.markdown("⭐ **Nível:** `Administrador`")
+    else:
+        st.markdown("👤 **Nível:** `Usuário Operacional`")
+        
+    st.markdown("---")
     st.markdown("### 🏛️ Consultas Receita Federal")
     st.link_button("📄 Consulta CPF (Receita)", "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp", use_container_width=True)
     st.link_button("🏢 Consulta CNPJ (Receita)", "https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva/cnpjreva_solicitacao.asp", use_container_width=True)
-    
     st.markdown("---")
     
     if st.button("🔒 Sair do Sistema", use_container_width=True):
@@ -174,21 +153,17 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 with st.container():
     st.markdown("### 📋 Dados do Pesquisado")
-    
     col1, col2 = st.columns(2)
     with col1:
         nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: João da Silva")
     with col2:
         cpf_input = st.text_input("👉 CPF do Pesquisado", placeholder="Ex: 000.000.000-00")
-    
-    # OPÇÃO DE CONFIRMAÇÃO MANUAL SE O OPERADOR JÁ SOUBER QUE É PEP
-    force_pep = st.checkbox("⚠️ Enquadrar manualmente como PEP (caso a consulta automática precise de confirmação)", value=False)
 
     st.markdown("<br>", unsafe_allow_html=True)
     btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
 # -----------------------------------------------------------------------------
-# ⚙️ EXECUÇÃO DA CONSULTA E GERAÇÃO DO PDF
+# ⚙️ EXECUÇÃO DA CONSULTA AUTOMÁTICA
 # -----------------------------------------------------------------------------
 if btn_pesquisar:
     if not nome_input.strip() or not cpf_input.strip():
@@ -201,7 +176,7 @@ if btn_pesquisar:
             # 1. BUSCA WIKIPÉDIA
             wiki_text = buscar_wikipedia(nome_limpo)
             
-            # 2. BUSCA DUCKDUCKGO COM QUERIES SIMPLES (Evita falhas de sintaxe)
+            # 2. BUSCA DUCKDUCKGO
             res_web = wiki_text + "\n"
             queries_simples = [
                 f'"{nome_limpo}"',
@@ -222,30 +197,23 @@ if btn_pesquisar:
             texto_l = normalizar_texto(res_web)
             
             # 3. DICIONÁRIO COMPLETO DE CARGOS PEP (Normativa COAF / SUSEP 612/2020)
-            TERMOS_JUDICIARIO = ["ministro", "stf", "stj", "tst", "tse", "stm", "desembargador", "juiz", "magistrado", "cjd"]
+            TERMOS_JUDICIARIO = ["ministro", "stf", "stj", "tst", "tse", "stm", "desembargador", "juiz", "magistrado"]
             TERMOS_EXECUTIVO = ["presidente", "vice presidente", "governador", "vice governador", "prefeito", "vice prefeito", "secretario", "ministro de estado"]
-            TERMOS_LEGISLATIVO = ["senador", "deputado federal", "deputado estadual", "deputado distrital", "vereador", "camara dos deputados", "senado federal"]
-            TERMOS_CONTROLE_PROCURADORIA = ["procurador", "promotor", "tcu", "tce", "tcm", "tribunal de contas", "defensor publico", "pgr"]
+            TERMOS_LEGISLATIVO = ["senador", "deputado federal", "deputado estadual", "deputado distrital", "vereador"]
+            TERMOS_CONTROLE = ["procurador", "promotor", "tcu", "tce", "tcm", "tribunal de contas", "defensor publico", "pgr"]
             TERMOS_MILITAR_DIPLOMACIA = ["general", "almirante", "brigadeiro", "embaixador", "diplomata"]
-            TERMOS_ESTATAIS = ["diretor estatal", "presidente estatal", "petrobras", "bndes", "caixa economica", "banco do brasil"]
-            TERMOS_GERAIS_POLITICA = ["politico", "partido", "eleicao", "candidato", "mandato", "ex prefeito", "ex ministro", "ex governador", "pep"]
+            TERMOS_GERAIS = ["politico", "partido", "eleicao", "candidato", "mandato", "ex prefeito", "ex ministro", "ex governador", "pep"]
 
-            TODOS_TERMOS_PEP = (
-                TERMOS_JUDICIARIO + TERMOS_EXECUTIVO + TERMOS_LEGISLATIVO + 
-                TERMOS_CONTROLE_PROCURADORIA + TERMOS_MILITAR_DIPLOMACIA + 
-                TERMOS_ESTATAIS + TERMOS_GERAIS_POLITICA
-            )
+            TODOS_TERMOS_PEP = TERMOS_JUDICIARIO + TERMOS_EXECUTIVO + TERMOS_LEGISLATIVO + TERMOS_CONTROLE + TERMOS_MILITAR_DIPLOMACIA + TERMOS_GERAIS
             
-            # Checagem se algum termo PEP foi encontrado
             termo_encontrado = None
             for term in TODOS_TERMOS_PEP:
                 if term in texto_l:
                     termo_encontrado = term
                     break
             
-            detec_pep = (termo_encontrado is not None) or force_pep
+            detec_pep = termo_encontrado is not None
             
-            # ENQUADRAMENTO DO CARGO
             if detec_pep:
                 if any(t in texto_l for t in TERMOS_JUDICIARIO):
                     cargo_detectado = "Ministro / Magistrado de Corte Superior ou Tribunal"
@@ -259,7 +227,7 @@ if btn_pesquisar:
                     cargo_detectado = "Parlamentar (Senador / Deputado / Vereador)"
                     orgao_detectado = "Poder Legislativo"
                     detalhe_cargo = "Agente Político Eletivo"
-                elif any(t in texto_l for t in TERMOS_CONTROLE_PROCURADORIA):
+                elif any(t in texto_l for t in TERMOS_CONTROLE):
                     cargo_detectado = "Procurador / Conselheiro de Tribunal de Contas / Órgão de Controle"
                     orgao_detectado = "Ministério Público / Tribunal de Contas"
                     detalhe_cargo = "Agente de Fiscalização e Controle"
@@ -289,13 +257,13 @@ if btn_pesquisar:
                 RISCO_FINAL = "BAIXO"
                 PRAZO_RENOVAÇÃO = "01 ANO"
                 SITUACAO_CPF = "REGULAR"
-                APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta nas bases abertas"
+                APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta nas bases públicas consultadas"
                 PERFIL_OP = "Profissional Independente"
                 PARECER = "Consulta realizada em bases públicas de transparência. Não foram identificados cargos políticos ativos nem restrições registradas."
                 PROXIMA_ATUALIZACAO = "13/08/2027"
 
             # -----------------------------------------------------------------
-            # EXIBIÇÃO DE EVIDÊNCIAS NA TELA ANTES DO PDF
+            # EXIBIÇÃO DE EVIDÊNCIAS NA TELA
             # -----------------------------------------------------------------
             st.markdown("---")
             if STATUS_PEP == "SIM":
@@ -385,7 +353,7 @@ if btn_pesquisar:
             story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
             story.append(Spacer(1, 10))
 
-            emissor_nome = f"Operador: {user_info['nome']} ({st.session_state.email_logado})"
+            emissor_nome = f"Operador: {user_info['nome']} ({st.session_state.email_logado}) | Perfil: {user_info.get('perfil')}"
             meta_table_data = [
                 [Paragraph(f"Emissor: {emissor_nome}", style_meta_val)],
                 [Paragraph("Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL", style_meta_val)]
