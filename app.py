@@ -22,14 +22,15 @@ def normalizar_texto(txt):
     sem_acento = "".join([c for c in nfkd if not unicodedata.combining(c)])
     return re.sub(r'[^a-zA-Z0-9\s]', ' ', sem_acento).lower().strip()
 
-def buscar_na_planilha_pep(nome_input, cpf_input, arquivo_padrao="pep_oficial.csv"):
+def buscar_na_planilha_pep(nome_input, cpf_input):
     """
     Busca o indivíduo no arquivo oficial TXT/CSV da CGU considerando
     nomes de colunas reais e CPFs mascarados por LGPD (***.123.456-**).
     """
+    arquivos_possiveis = ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]
     caminho_final = None
-    # Procura pelos nomes mais comuns de arquivo salvo
-    for nome_arq in [arquivo_padrao, "pep_oficial.csv", "pep_oficial.txt"]:
+    
+    for nome_arq in arquivos_possiveis:
         if os.path.exists(nome_arq):
             caminho_final = nome_arq
             break
@@ -167,8 +168,9 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
     
-    # STATUS DA PLANILHA OFICIAL LOCAL
-    if os.path.exists("pep_oficial.csv") or os.path.exists("pep_oficial.txt"):
+    # STATUS DA PLANILHA OFICIAL LOCAL - À PROVA DE FALHAS
+    arquivos_possiveis = ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]
+    if any(os.path.exists(arq) for arq in arquivos_possiveis):
         st.success("📁 **Base PEP Local:** Carregada e Ativa")
     else:
         st.info("🌐 **Base PEP Local:** Não enc. (Modo Web Ativo)")
