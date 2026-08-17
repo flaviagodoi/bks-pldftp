@@ -11,6 +11,18 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
+# 🔐 AUTENTICAÇÃO E CONFIGURAÇÃO DA PÁGINA
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="PLDFTP - BKS Corretora",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+SENHA_CORRETA = "Bks2026@"
+
+# -----------------------------------------------------------------------------
 # 📅 GESTÃO DE EXPIRAÇÃO DA BASE DE DADOS INTERNA (30 DIAS)
 # -----------------------------------------------------------------------------
 # Data fixa da inclusão da base (Sexta-feira, 14/08/2026)
@@ -78,6 +90,13 @@ def identificar_arquivo_pep():
         pass
     return None
 
+def carregar_logo():
+    """Tenta carregar a imagem da logo da BKS."""
+    for arq in ["logo.png", "logo.jpg", "logo.jpeg", "bks_logo.png", "image001.png"]:
+        if os.path.exists(arq):
+            return arq
+    return None
+
 # -----------------------------------------------------------------------------
 # 📄 GERAÇÃO DE RELATÓRIO PDF (REPORTLAB)
 # -----------------------------------------------------------------------------
@@ -91,13 +110,12 @@ def gerar_relatorio_pdf(nome_pesquisado, cpf_pesquisado, cpf_valido, pep_encontr
     story = []
     styles = getSampleStyleSheet()
 
-    # Estilos customizados
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor("#1A365D"),
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#003366"),
         alignment=TA_LEFT,
         fontName="Helvetica-Bold"
     )
@@ -111,16 +129,22 @@ def gerar_relatorio_pdf(nome_pesquisado, cpf_pesquisado, cpf_valido, pep_encontr
         fontName="Helvetica"
     )
 
+    logo_path = carregar_logo()
+    if logo_path:
+        try:
+            story.append(Image(logo_path, width=150, height=50))
+            story.append(Spacer(1, 10))
+        except Exception:
+            pass
+
     status_cpf_str = "Válido" if cpf_valido else "Inválido"
 
-    # Cabeçalho do Relatório
     story.append(Paragraph("<b>PORTAL BKS - CONSULTA DE CONFORMIDADE PLDFTP</b>", title_style))
     story.append(Spacer(1, 10))
     story.append(Paragraph(f"<b>Data da Emissão:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", body_style))
     story.append(Paragraph(f"<b>Base de Dados Atualizada em:</b> {DATA_INCLUSAO_BASE.strftime('%d/%m/%Y')}", body_style))
     story.append(Spacer(1, 15))
 
-    # Tabela de Dados Analisados
     dados_tabela = [
         [Paragraph("<b>Parâmetro</b>", body_style), Paragraph("<b>Resultado</b>", body_style)],
         [Paragraph("Nome Pesquisado", body_style), Paragraph(nome_pesquisado.upper(), body_style)],
@@ -149,53 +173,64 @@ def gerar_relatorio_pdf(nome_pesquisado, cpf_pesquisado, cpf_valido, pep_encontr
     return buffer
 
 # -----------------------------------------------------------------------------
-# 💻 INTERFACE STREAMLIT
+# 🔒 TELA DE SENHA E APLICAÇÃO PRINCIPAL
 # -----------------------------------------------------------------------------
-def main():
-    st.set_page_config(page_title="PLDFTP - BKS Corretora", page_icon="🛡️", layout="wide")
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if not st.session_state["autenticado"]:
+    st.title("🔒 Acesso Restrito - Portal BKS PLDFTP")
     
-    # -------------------------------------------------------------------------
-    # 🔗 BARRA LATERAL (SIDEBAR) - LINKS DA RECEITA FEDERAL E UTILITÁRIOS
-    # -------------------------------------------------------------------------
-    with st.sidebar:
-        st.header("🔗 Links Úteis da Receita Federal")
-        st.markdown("""
-        Caso necessite realizar uma validação cadastral formal em tempo real junto aos órgãos governamentais:
-        """)
-        
-        st.markdown("""
-        * 🏛️ [Comprovante de Situação Cadastral CPF](https://servicos.receita.fazenda.gov.br/servicos/cpf/consultasituacao/consultapublica.asp)
-        * 📄 [Consulta CNPJ (Receita Federal)](https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp)
-        * 🔍 [Consulta Consolidada PEP (Portal da Transparência)](https://portaldatransparencia.gov.br/busca)
-        * ⚖️ [Certidão Negativa de Debitos (CND)](https://solucoes.receita.fazenda.gov.br/Servicos/certidaointernet/PB/Consultar/)
-        """)
-        
-        st.markdown("---")
-        st.caption("BKS Corretora de Seguros — Sistema PLDFTP")
+    logo_path = carregar_logo()
+    if logo_path:
+        st.image(logo_path, width=200)
 
-    # -------------------------------------------------------------------------
-    # CORPO PRINCIPAL
-    # -------------------------------------------------------------------------
-    st.title("🛡️ Portal Interno PLDFTP - BKS")
-    st.caption("Verificação de Pessoas Expostas Politicamente (PEP) e Validação de Cadastro")
+    senha_digitada = st.text_input("Digite a senha de acesso ao portal:", type="password")
+    
+    if st.button("Entrar"):
+        if senha_digitada == SENHA_CORRETA:
+            st.session_state["autenticado"] = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta! Tente novamente.")
+    st.stop()
 
-    # Exibe o status e aviso de expiração de 30 dias da base de dados
-    verificar_validade_base()
+# -----------------------------------------------------------------------------
+# 💻 INTERFACE PRINCIPAL (AUTENTICADO)
+# -----------------------------------------------------------------------------
+logo_path = carregar_logo()
+if logo_path:
+    st.sidebar.image(logo_path, use_container_width=True)
 
-    st.markdown("---")
+st.sidebar.title("🌸 Portal BKS")
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔗 Utilitários & Links Úteis")
+st.sidebar.markdown("""
+* 🏛️ [Comprovante CPF (Receita Federal)](https://servicos.receita.fazenda.gov.br/servicos/cpf/consultasituacao/consultapublica.asp)
+* 📄 [Consulta CNPJ (Receita Federal)](https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp)
+* 🔍 [Portal da Transparência (PEP)](https://portaldatransparencia.gov.br/busca)
+* ⚖️ [Certidão Negativa (CND)](https://solucoes.receita.fazenda.gov.br/Servicos/certidaointernet/PB/Consultar/)
+""")
+st.sidebar.markdown("---")
+st.sidebar.caption("BKS Corretora de Seguros")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        nome_input = st.text_input("Nome Completo:", placeholder="Ex: João da Silva")
-    with col2:
-        cpf_input = st.text_input("CPF (Apenas números ou formatado):", placeholder="000.000.000-00")
+st.title("🛡️ Portal Interno PLDFTP - BKS")
+st.caption("Verificação de Pessoas Expostas Politicamente (PEP) e Validação Cadastral")
 
-    if st.button("🔍 Realizar Consulta", type="primary"):
-        if not nome_input or not cpf_input:
-            st.warning("Por favor, preencha o Nome e o CPF para realizar a busca.")
-            return
+verificar_validade_base()
 
-        # 1. Validação Algorítmica do CPF
+st.markdown("---")
+
+col1, col2 = st.columns(2)
+with col1:
+    nome_input = st.text_input("Nome Completo:", placeholder="Ex: João da Silva")
+with col2:
+    cpf_input = st.text_input("CPF (Apenas números ou formatado):", placeholder="000.000.000-00")
+
+if st.button("🔍 Realizar Consulta", type="primary"):
+    if not nome_input or not cpf_input:
+        st.warning("Por favor, preencha o Nome e o CPF para realizar a busca.")
+    else:
         eh_valido = validar_cpf(cpf_input)
         
         st.subheader("Resultado da Análise")
@@ -205,7 +240,6 @@ def main():
         else:
             st.error("❌ **Status do CPF:** Inválido (Dígitos verificadores incorretos)")
 
-        # 2. Busca na Base PEP Local
         arquivo_pep = identificar_arquivo_pep()
         encontrado = False
         detalhes = ""
@@ -229,7 +263,6 @@ def main():
         else:
             st.info("ℹ️ Nenhum apontamento de PEP localizado na base interna.")
 
-        # 3. Gerador de Relatório PDF
         pdf_buffer = gerar_relatorio_pdf(
             nome_pesquisado=nome_input,
             cpf_pesquisado=cpf_input,
@@ -245,6 +278,3 @@ def main():
             file_name=f"Relatorio_PLDFTP_{re.sub(r'\D', '', cpf_input)}.pdf",
             mime="application/pdf"
         )
-
-if __name__ == "__main__":
-    main()
