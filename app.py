@@ -154,6 +154,28 @@ def gerar_relatorio_pdf(nome_pesquisado, cpf_pesquisado, cpf_valido, pep_encontr
 def main():
     st.set_page_config(page_title="PLDFTP - BKS Corretora", page_icon="🛡️", layout="wide")
     
+    # -------------------------------------------------------------------------
+    # 🔗 BARRA LATERAL (SIDEBAR) - LINKS DA RECEITA FEDERAL E UTILITÁRIOS
+    # -------------------------------------------------------------------------
+    with st.sidebar:
+        st.header("🔗 Links Úteis da Receita Federal")
+        st.markdown("""
+        Caso necessite realizar uma validação cadastral formal em tempo real junto aos órgãos governamentais:
+        """)
+        
+        st.markdown("""
+        * 🏛️ [Comprovante de Situação Cadastral CPF](https://servicos.receita.fazenda.gov.br/servicos/cpf/consultasituacao/consultapublica.asp)
+        * 📄 [Consulta CNPJ (Receita Federal)](https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp)
+        * 🔍 [Consulta Consolidada PEP (Portal da Transparência)](https://portaldatransparencia.gov.br/busca)
+        * ⚖️ [Certidão Negativa de Debitos (CND)](https://solucoes.receita.fazenda.gov.br/Servicos/certidaointernet/PB/Consultar/)
+        """)
+        
+        st.markdown("---")
+        st.caption("BKS Corretora de Seguros — Sistema PLDFTP")
+
+    # -------------------------------------------------------------------------
+    # CORPO PRINCIPAL
+    # -------------------------------------------------------------------------
     st.title("🛡️ Portal Interno PLDFTP - BKS")
     st.caption("Verificação de Pessoas Expostas Politicamente (PEP) e Validação de Cadastro")
 
