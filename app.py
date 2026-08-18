@@ -12,16 +12,24 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🛠️ FUNÇÕES DE GESTÃO DE VENCIMENTOS E BASE LOCAL
+# 🛠️ FUNÇÕES DE FORMATACÃO, GESTÃO DE VENCIMENTOS E BASE LOCAL
 # -----------------------------------------------------------------------------
 ARQUIVO_VENCIMENTOS = "vencimentos.csv"
+
+def formatar_cpf(cpf_raw: str) -> str:
+    """Aplica a máscara 000.000.000-00 mantendo os zeros à esquerda."""
+    nums = re.sub(r'\D', '', str(cpf_raw))
+    if len(nums) == 11:
+        return f"{nums[:3]}.{nums[3:6]}.{nums[6:9]}-{nums[9:]}"
+    return cpf_raw.strip()
 
 def registrar_vencimento(nome, cpf, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
     """
     Grava ou ATUALIZA o histórico do relatório gerado.
-    Evita duplicidade substituindo o registro caso o CPF já exista no arquivo.
+    Garante a formatação do CPF e preserva os zeros à esquerda.
     """
     cpf_limpo_key = re.sub(r'\D', '', cpf)
+    cpf_formatado = formatar_cpf(cpf)
     registros_existentes = carregar_vencimentos()
     
     try:
@@ -31,7 +39,7 @@ def registrar_vencimento(nome, cpf, email_operador, status_pep, data_emissao_dt,
 
     novo_registro = {
         "Nome": nome.upper().strip(),
-        "CPF": cpf.strip(),
+        "CPF": cpf_formatado,
         "CPF_Key": cpf_limpo_key,
         "Operador": email_operador,
         "Data_Emissao": data_emissao_dt.strftime("%d/%m/%Y %H:%M"),
@@ -40,7 +48,6 @@ def registrar_vencimento(nome, cpf, email_operador, status_pep, data_emissao_dt,
         "Data_Vencimento_ISO": dt_venc
     }
 
-    # Atualiza o registro existente ou adiciona um novo
     atualizado = False
     novos_registros = []
     for reg in registros_existentes:
@@ -60,7 +67,6 @@ def registrar_vencimento(nome, cpf, email_operador, status_pep, data_emissao_dt,
             writer = csv.DictWriter(f, fieldnames=campos, delimiter=';')
             writer.writeheader()
             for r in novos_registros:
-                # Garante que as chaves estejam presentes
                 r_line = {k: r.get(k, "") for k in campos}
                 writer.writerow(r_line)
     except Exception as e:
@@ -292,16 +298,10 @@ with st.sidebar:
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
     st.markdown("---")
     
-    # Se houver pedido de renovação pendente, força a navegação para a tela de busca
-    if st.session_state.renovar_nome:
-        index_menu = 0
-    else:
-        index_menu = 0
-
     opcao_menu = st.radio(
         "📌 Menu de Navegação:",
         ["🔍 Consulta PLD/FTP", "📊 Gestão de Vencimentos"],
-        index=index_menu
+        index=0
     )
     
     st.markdown("---")
@@ -341,9 +341,8 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
     st.caption("Pesquisa automatizada em portais de transparência e bases públicas para enquadramento regulatório.")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Preenchimento automático caso venha de um clique em "Renovar"
     val_nome_def = st.session_state.renovar_nome if st.session_state.renovar_nome else ""
-    val_cpf_def = st.session_state.renovar_cpf if st.session_state.renovar_cpf else ""
+    val_cpf_def = formatar_cpf(st.session_state.renovar_cpf) if st.session_state.renovar_cpf else ""
 
     with st.container():
         st.markdown("### 📋 Dados do Pesquisado")
@@ -351,17 +350,17 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
         with col1:
             nome_input = st.text_input("👉 Nome Completo do Pesquisado", value=val_nome_def, placeholder="Ex: João da Silva")
         with col2:
-            cpf_input = st.text_input("👉 CPF do Pesquisado", value=val_cpf_def, placeholder="Ex: 000.000.000-00")
+            cpf_input = st.text_input("👉 CPF do Pesquisado", value=val_cpf_def, placeholder="000.000.000-00")
 
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
     if btn_pesquisar or (st.session_state.renovar_nome and st.session_state.renovar_cpf):
-        # Limpa os estados do clique de renovação após engatar a busca
         st.session_state.renovar_nome = ""
         st.session_state.renovar_cpf = ""
         
         cpf_valido_bool = validar_cpf(cpf_input)
+        cpf_formatado_input = formatar_cpf(cpf_input)
         
         if not nome_input.strip():
             st.warning("⚠️ Por favor, preencha o Nome Completo antes de continuar.")
@@ -372,7 +371,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                 
                 nome_limpo = nome_input.strip()
                 
-                match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
+                match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_formatado_input)
                 
                 if match_planilha:
                     detec_pep = True
@@ -445,10 +444,10 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                     PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                     PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                # REGISTRA OU ATUALIZA O VENCIMENTO (SEM DUPLICAR)
+                # GRAVA O REGISTRO FORMATADO NO BANCO LOCAL (SEM CORTAR ZERO)
                 registrar_vencimento(
                     nome=nome_input,
-                    cpf=cpf_input,
+                    cpf=cpf_formatado_input,
                     email_operador=st.session_state.email_logado,
                     status_pep=STATUS_PEP,
                     data_emissao_dt=agora_dt,
@@ -602,7 +601,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
 
                 make_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
                     ("NOME COMPLETO", nome_input.upper()),
-                    ("CPF", cpf_input),
+                    ("CPF", cpf_formatado_input),
                     ("PERFIL E NATUREZA", "Pessoa Física"),
                     ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
                 ])
@@ -702,9 +701,12 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             except Exception:
                 status_alerta = "⚪ Indefinido"
 
+            cpf_fmt = formatar_cpf(reg.get("CPF", ""))
+
             dados_processados.append({
                 "Nome Completo": reg.get("Nome", ""),
-                "CPF": reg.get("CPF", ""),
+                "CPF": cpf_fmt,
+                "CPF_Excel": f'="{cpf_fmt}"',  # Força o Excel a preservar os zeros à esquerda
                 "Status PEP": reg.get("Status_PEP", ""),
                 "Data de Emissão": reg.get("Data_Emissao", ""),
                 "Data de Vencimento": reg.get("Data_Vencimento", ""),
@@ -712,7 +714,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 "Operador": reg.get("Operador", "")
             })
 
-        # METRICAS
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         col_m1.metric("Total de Relatórios", len(registros))
         col_m2.metric("🟢 Dentro do Prazo", validos)
@@ -722,7 +723,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         st.markdown("---")
         st.subheader("🔍 Filtros de Busca")
 
-        # FILTROS
         col_f1, col_f2 = st.columns([1, 2])
         with col_f1:
             filtro_status = st.selectbox(
@@ -732,10 +732,8 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         with col_f2:
             termo_busca = st.text_input("Buscar por Nome ou CPF:", placeholder="Digite o nome ou CPF...")
 
-        # APLICA FILTROS
         dados_filtrados = []
         for item in dados_processados:
-            # Filtro de Status
             if filtro_status == "🔴 Apenas Vencidos" and "🔴" not in item["Status do Prazo"]:
                 continue
             elif filtro_status == "🟡 Vencem em breve" and "🟡" not in item["Status do Prazo"]:
@@ -743,7 +741,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             elif filtro_status == "🟢 Apenas Válidos" and "🟢" not in item["Status do Prazo"]:
                 continue
 
-            # Filtro de Texto
             if termo_busca:
                 tb_norm = normalizar_texto(termo_busca)
                 nome_norm = normalizar_texto(item["Nome Completo"])
@@ -760,7 +757,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         if not dados_filtrados:
             st.warning("Nenhum registro localizado com os filtros selecionados.")
         else:
-            # EXIBIÇÃO INTERATIVA COM BOTAO RENOVAR
             for idx, item in enumerate(dados_filtrados):
                 c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
                 
@@ -785,12 +781,21 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # BOTAO PARA EXPORTAR PARA EXCEL EM COLUNAS SEPARADAS (DELIMITADOR ';')
+        # PREPARA ARQUIVO CSV EM COLUNAS COM TRATAMENTO DE CPF PARA EXCEL
         csv_buffer = io.StringIO()
         campos = ["Nome Completo", "CPF", "Status PEP", "Data de Emissão", "Data de Vencimento", "Status do Prazo", "Operador"]
         writer = csv.DictWriter(csv_buffer, fieldnames=campos, delimiter=';')
         writer.writeheader()
-        writer.writerows(dados_filtrados if dados_filtrados else dados_processados)
+        
+        # Copia dados formatando o CPF para não perder zero à esquerda no Excel
+        dados_excel = []
+        for d in (dados_filtrados if dados_filtrados else dados_processados):
+            row_e = d.copy()
+            row_e["CPF"] = d["CPF_Excel"]  # Aplica a instrução ="(000.000.000-00)" para o Excel
+            del row_e["CPF_Excel"]
+            dados_excel.append(row_e)
+
+        writer.writerows(dados_excel)
 
         st.download_button(
             label="📥 Exportar Lista em Colunas (.CSV para Excel)",
