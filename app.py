@@ -12,6 +12,29 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
+# 🔐 LISTA DE E-MAILS AUTORIZADOS (CONTROLE DE ACESSO / APROVAÇÃO DE USUÁRIOS)
+# -----------------------------------------------------------------------------
+# Insira aqui os e-mails ou domínios liberados para acessar a plataforma
+EMAILS_AUTORIZADOS = [
+    "operacao@bks.com.br",
+    "flaviagodoi@bks.com.br",
+    "seguros@bks.com.br",
+    "netoduarte@bks.com.br",
+    "carlosalberto@bks.com.br",
+    "laissilva@bks.com.br"
+]
+
+def verificar_email_autorizado(email: str) -> bool:
+    """Verifica se o e-mail informado está na lista de usuários aprovados ou pertence ao domínio BKS."""
+    if not email:
+        return False
+    email_clean = email.strip().lower()
+    # Libera e-mails da lista de aprovados ou qualquer e-mail corporativo @bks.com.br
+    if email_clean in EMAILS_AUTORIZADOS or email_clean.endswith("@bks.com.br"):
+        return True
+    return False
+
+# -----------------------------------------------------------------------------
 # 🛠️ FUNÇÕES DE FORMATAÇÃO ESTÉTICA, GESTÃO DE VENCIMENTOS E BASE LOCAL
 # -----------------------------------------------------------------------------
 ARQUIVO_VENCIMENTOS = "vencimentos.csv"
@@ -23,13 +46,21 @@ def formatar_cpf_estetico(cpf_raw: str) -> str:
         return f"{nums[:3]}.{nums[3:6]}.{nums[6:9]}-{nums[9:]}"
     return str(cpf_raw).strip()
 
+def mascarar_cpf(cpf_raw: str) -> str:
+    """Oculta o miolo do CPF no padrão LGPD (ex: 123.***.***-89)."""
+    nums = re.sub(r'\D', '', str(cpf_raw))
+    if len(nums) == 11:
+        return f"{nums[:3]}.***.***-{nums[9:]}"
+    return "***.***.***-**"
+
 def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
     """
     Grava ou ATUALIZA o histórico do relatório gerado.
-    Armazena o CPF esteticamente formatado sem alterar a chave interna de busca.
+    Armazena o CPF completo na chave interna, mas registra a versão mascarada para exibição.
     """
     cpf_limpo_key = re.sub(r'\D', '', cpf_raw)
     cpf_formatado = formatar_cpf_estetico(cpf_raw)
+    cpf_mascarado = mascarar_cpf(cpf_raw)
     registros_existentes = carregar_vencimentos()
     
     try:
@@ -40,6 +71,7 @@ def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao
     novo_registro = {
         "Nome": nome.upper().strip(),
         "CPF": cpf_formatado,
+        "CPF_Mascarado": cpf_mascarado,
         "CPF_Key": cpf_limpo_key,
         "Operador": email_operador,
         "Data_Emissao": data_emissao_dt.strftime("%d/%m/%Y %H:%M"),
@@ -51,7 +83,7 @@ def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao
     atualizado = False
     novos_registros = []
     for reg in registros_existentes:
-        reg_cpf_key = re.sub(r'\D', '', reg.get("CPF", ""))
+        reg_cpf_key = re.sub(r'\D', '', reg.get("CPF_Key", reg.get("CPF", "")))
         if reg_cpf_key == cpf_limpo_key and cpf_limpo_key != "":
             novos_registros.append(novo_registro)
             atualizado = True
@@ -62,7 +94,7 @@ def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao
         novos_registros.append(novo_registro)
 
     try:
-        campos = ["Nome", "CPF", "CPF_Key", "Operador", "Data_Emissao", "Status_PEP", "Data_Vencimento", "Data_Vencimento_ISO"]
+        campos = ["Nome", "CPF", "CPF_Mascarado", "CPF_Key", "Operador", "Data_Emissao", "Status_PEP", "Data_Vencimento", "Data_Vencimento_ISO"]
         with open(ARQUIVO_VENCIMENTOS, mode='w', encoding='utf-8-sig', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=campos, delimiter=';')
             writer.writeheader()
@@ -135,10 +167,7 @@ def identificar_arquivo_pep():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """
-    Busca flexível na planilha oficial da CGU:
-    Extrai apenas os números para verificação e ignora formatação.
-    """
+    """Busca flexível na planilha oficial da CGU."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -276,12 +305,12 @@ if not st.session_state.autenticado:
         
         if st.button("🔓 Entrar no Sistema", use_container_width=True):
             if senha_digitada == SENHA_GERAL:
-                if not email_digitado:
-                    email_digitado = "operacao@bks.com.br"
-                
-                st.session_state.autenticado = True
-                st.session_state.email_logado = email_digitado
-                st.rerun()
+                if verificar_email_autorizado(email_digitado):
+                    st.session_state.autenticado = True
+                    st.session_state.email_logado = email_digitado
+                    st.rerun()
+                else:
+                    st.error("⚠️ **Acesso Negado:** O e-mail informado não possui permissão de acesso. Contate o administrador de compliance.")
             else:
                 st.error("❌ Senha incorreta! Verifique seus dados de acesso.")
     st.stop()
@@ -447,7 +476,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                     PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                     PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                # REGISTRA / ATUALIZA NO CONTROLE DE VENCIMENTOS COM FORMATAÇÃO
+                # REGISTRA / ATUALIZA NO CONTROLE DE VENCIMENTOS
                 registrar_vencimento(
                     nome=nome_input,
                     cpf_raw=cpf_input,
@@ -704,12 +733,14 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             except Exception:
                 status_alerta = "⚪ Indefinido"
 
-            cpf_fmt = formatar_cpf_estetico(reg.get("CPF", ""))
+            cpf_completo = reg.get("CPF_Key", reg.get("CPF", ""))
+            cpf_mascarado = reg.get("CPF_Mascarado", mascarar_cpf(cpf_completo))
 
             dados_processados.append({
                 "Nome Completo": reg.get("Nome", ""),
-                "CPF": cpf_fmt,
-                "CPF_Excel": f'="{cpf_fmt}"',  # Preserva os zeros à esquerda no Excel
+                "CPF_Exibicao": cpf_mascarado,
+                "CPF_Real": cpf_completo,
+                "CPF_Excel": f'="{cpf_mascarado}"',  # CSV exporta o CPF MASCARADO no Excel
                 "Status PEP": reg.get("Status_PEP", ""),
                 "Data de Emissão": reg.get("Data_Emissao", ""),
                 "Data de Vencimento": reg.get("Data_Vencimento", ""),
@@ -747,7 +778,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             if termo_busca:
                 tb_norm = normalizar_texto(termo_busca)
                 nome_norm = normalizar_texto(item["Nome Completo"])
-                cpf_limpo = re.sub(r'\D', '', item["CPF"])
+                cpf_limpo = re.sub(r'\D', '', item["CPF_Real"])
                 tb_limpo = re.sub(r'\D', '', termo_busca)
                 if tb_norm not in nome_norm and (tb_limpo == "" or tb_limpo not in cpf_limpo):
                     continue
@@ -760,12 +791,11 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         if not dados_filtrados:
             st.warning("Nenhum registro localizado com os filtros selecionados.")
         else:
-            # LINHA DE CABEÇALHO DAS COLUNAS DA TABELA
             col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7 = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
             with col_h1:
                 st.markdown("**👤 Nome Completo**")
             with col_h2:
-                st.markdown("**📄 CPF**")
+                st.markdown("**📄 CPF (LGPD)**")
             with col_h3:
                 st.markdown("**🛡️ Status PEP**")
             with col_h4:
@@ -778,14 +808,13 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 st.markdown("**⚡ Ação**")
             st.markdown("---")
 
-            # LINHAS DE DADOS
             for idx, item in enumerate(dados_filtrados):
                 c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
                 
                 with c_n:
                     st.write(f"**{item['Nome Completo']}**")
                 with c_c:
-                    st.write(item["CPF"])
+                    st.write(item["CPF_Exibicao"])  # MASCARADO NA TELA
                 with c_p:
                     st.write(item["Status PEP"])
                 with c_e:
@@ -796,14 +825,15 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     st.write(item["Status do Prazo"])
                 with c_b:
                     if st.button("🔄 Renovar", key=f"btn_renovar_{idx}"):
+                        # Passa o Nome e o CPF REAL (oculto) para refazer a consulta
                         st.session_state.renovar_nome = item["Nome Completo"]
-                        st.session_state.renovar_cpf = item["CPF"]
+                        st.session_state.renovar_cpf = item["CPF_Real"]
                         st.rerun()
                 st.divider()
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ARQUIVO CSV EM COLUNAS PARA O EXCEL
+        # PREPARA ARQUIVO CSV EM COLUNAS COM CPF MASCARADO
         csv_buffer = io.StringIO()
         campos = ["Nome Completo", "CPF", "Status PEP", "Data de Emissão", "Data de Vencimento", "Status do Prazo", "Operador"]
         writer = csv.DictWriter(csv_buffer, fieldnames=campos, delimiter=';')
@@ -811,9 +841,15 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         
         dados_excel = []
         for d in (dados_filtrados if dados_filtrados else dados_processados):
-            row_e = d.copy()
-            row_e["CPF"] = d["CPF_Excel"]
-            del row_e["CPF_Excel"]
+            row_e = {
+                "Nome Completo": d["Nome Completo"],
+                "CPF": d["CPF_Excel"],  # MASCARADO NO EXCEL (ex: 123.***.***-89)
+                "Status PEP": d["Status PEP"],
+                "Data de Emissão": d["Data de Emissão"],
+                "Data de Vencimento": d["Data de Vencimento"],
+                "Status do Prazo": d["Status do Prazo"],
+                "Operador": d["Operador"]
+            }
             dados_excel.append(row_e)
 
         writer.writerows(dados_excel)
