@@ -12,25 +12,87 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🔐 LISTA DE E-MAILS AUTORIZADOS (CONTROLE DE ACESSO / APROVAÇÃO DE USUÁRIOS)
+# 🔐 CONTROLE DE ADMINISTRADORES E GESTÃO DINÂMICA DE USUÁRIOS APROVADOS
 # -----------------------------------------------------------------------------
-# Insira aqui os e-mails ou domínios liberados para acessar a plataforma
-EMAILS_AUTORIZADOS = [
-    "operacao@bks.com.br",
+ADMINISTRADORES = [
     "flaviagodoi@bks.com.br",
-    "seguros@bks.com.br",
-    "netoduarte@bks.com.br",
     "carlosalberto@bks.com.br",
-    "laissilva@bks.com.br"
+    "operacao@bks.com.br"
 ]
 
+ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
+
+def carregar_emails_autorizados():
+    """Lê do arquivo local os e-mails liberados ou inicializa com a lista padrão."""
+    emails_padrao = [
+        "operacao@bks.com.br",
+        "flaviagodoi@bks.com.br",
+        "seguros@bks.com.br",
+        "netoduarte@bks.com.br",
+        "carlosalberto@bks.com.br",
+        "laissilva@bks.com.br"
+    ]
+    
+    if not os.path.exists(ARQUIVO_USUARIOS):
+        salvar_emails_autorizados(emails_padrao)
+        return emails_padrao
+
+    emails = set()
+    try:
+        with open(ARQUIVO_USUARIOS, mode='r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if row and row[0].strip():
+                    emails.add(row[0].strip().lower())
+    except Exception:
+        return emails_padrao
+
+    return list(emails)
+
+def salvar_emails_autorizados(lista_emails):
+    """Salva a lista atualizada de e-mails autorizados no arquivo local."""
+    try:
+        with open(ARQUIVO_USUARIOS, mode='w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            for email in set(lista_emails):
+                if email.strip():
+                    writer.writerow([email.strip().lower()])
+    except Exception as e:
+        st.error(f"Erro ao salvar lista de usuários: {e}")
+
+def adicionar_novo_usuario(novo_email):
+    """Adiciona um novo e-mail à lista de aprovados."""
+    email_clean = novo_email.strip().lower()
+    if not email_clean:
+        return False, "O e-mail não pode estar em branco."
+    
+    lista_atual = carregar_emails_autorizados()
+    if email_clean in lista_atual:
+        return False, "Este e-mail já está cadastrado!"
+
+    lista_atual.append(email_clean)
+    salvar_emails_autorizados(lista_atual)
+    return True, f"Usuário {email_clean} autorizado com sucesso!"
+
+def remover_usuario(email_remover):
+    """Remove um e-mail da lista de aprovados."""
+    email_clean = email_remover.strip().lower()
+    lista_atual = carregar_emails_autorizados()
+    if email_clean in lista_atual:
+        lista_atual.remove(email_clean)
+        salvar_emails_autorizados(lista_atual)
+        return True, f"Acesso do e-mail {email_clean} revogado."
+    return False, "Usuário não encontrado."
+
 def verificar_email_autorizado(email: str) -> bool:
-    """Verifica se o e-mail informado está na lista de usuários aprovados ou pertence ao domínio BKS."""
+    """Verifica se o e-mail possui permissão de acesso."""
     if not email:
         return False
     email_clean = email.strip().lower()
-    # Libera e-mails da lista de aprovados ou qualquer e-mail corporativo @bks.com.br
-    if email_clean in EMAILS_AUTORIZADOS or email_clean.endswith("@bks.com.br"):
+    lista_aprovados = carregar_emails_autorizados()
+    
+    # Libera e-mails da lista aprovada ou do domínio corporativo @bks.com.br
+    if email_clean in lista_aprovados or email_clean.endswith("@bks.com.br"):
         return True
     return False
 
@@ -54,10 +116,7 @@ def mascarar_cpf(cpf_raw: str) -> str:
     return "***.***.***-**"
 
 def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
-    """
-    Grava ou ATUALIZA o histórico do relatório gerado.
-    Armazena o CPF completo na chave interna, mas registra a versão mascarada para exibição.
-    """
+    """Grava ou ATUALIZA o histórico do relatório gerado sem duplicidade."""
     cpf_limpo_key = re.sub(r'\D', '', cpf_raw)
     cpf_formatado = formatar_cpf_estetico(cpf_raw)
     cpf_mascarado = mascarar_cpf(cpf_raw)
@@ -132,7 +191,7 @@ def normalizar_texto(txt):
     return " ".join(limpo.split())
 
 def validar_cpf(cpf: str) -> bool:
-    """Valida o cálculo dos dígitos verificadores do CPF (Módulo 11) - aceita qualquer formato."""
+    """Valida o cálculo dos dígitos verificadores do CPF (Módulo 11)."""
     cpf_limpo = re.sub(r'\D', '', str(cpf))
     
     if len(cpf_limpo) != 11 or cpf_limpo == cpf_limpo[0] * 11:
@@ -310,7 +369,7 @@ if not st.session_state.autenticado:
                     st.session_state.email_logado = email_digitado
                     st.rerun()
                 else:
-                    st.error("⚠️ **Acesso Negado:** O e-mail informado não possui permissão de acesso. Contate o administrador de compliance.")
+                    st.error("⚠️ **Acesso Negado:** O e-mail informado não possui permissão de acesso. Contate um administrador de compliance.")
             else:
                 st.error("❌ Senha incorreta! Verifique seus dados de acesso.")
     st.stop()
@@ -318,6 +377,8 @@ if not st.session_state.autenticado:
 # -----------------------------------------------------------------------------
 # 🛡️ BARRA LATERAL (SIDEBAR) & NAVEGAÇÃO
 # -----------------------------------------------------------------------------
+eh_admin = st.session_state.email_logado in ADMINISTRADORES
+
 with st.sidebar:
     if os.path.exists("logo_bks.png"):
         st.image("logo_bks.png", use_container_width=True)
@@ -327,12 +388,21 @@ with st.sidebar:
     st.markdown("### 🟢 Status: **Operacional**")
     st.caption("BKS Corretora & BKS Re Resseguros")
     st.markdown("---")
-    st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
+    
+    if eh_admin:
+        st.markdown(f"📧 **Operador:** {st.session_state.email_logado}\n*(⭐ Administrador)*")
+    else:
+        st.markdown(f"📧 **Operador:** {st.session_state.email_logado}")
+        
     st.markdown("---")
     
+    opcoes_menu = ["🔍 Consulta PLD/FTP", "📊 Gestão de Vencimentos"]
+    if eh_admin:
+        opcoes_menu.append("⚙️ Gerenciador de Usuários")
+
     opcao_menu = st.radio(
         "📌 Menu de Navegação:",
-        ["🔍 Consulta PLD/FTP", "📊 Gestão de Vencimentos"],
+        opcoes_menu,
         index=0
     )
     
@@ -740,7 +810,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 "Nome Completo": reg.get("Nome", ""),
                 "CPF_Exibicao": cpf_mascarado,
                 "CPF_Real": cpf_completo,
-                "CPF_Excel": f'="{cpf_mascarado}"',  # CSV exporta o CPF MASCARADO no Excel
+                "CPF_Excel": f'="{cpf_mascarado}"',
                 "Status PEP": reg.get("Status_PEP", ""),
                 "Data de Emissão": reg.get("Data_Emissao", ""),
                 "Data de Vencimento": reg.get("Data_Vencimento", ""),
@@ -814,7 +884,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 with c_n:
                     st.write(f"**{item['Nome Completo']}**")
                 with c_c:
-                    st.write(item["CPF_Exibicao"])  # MASCARADO NA TELA
+                    st.write(item["CPF_Exibicao"])
                 with c_p:
                     st.write(item["Status PEP"])
                 with c_e:
@@ -825,7 +895,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     st.write(item["Status do Prazo"])
                 with c_b:
                     if st.button("🔄 Renovar", key=f"btn_renovar_{idx}"):
-                        # Passa o Nome e o CPF REAL (oculto) para refazer a consulta
                         st.session_state.renovar_nome = item["Nome Completo"]
                         st.session_state.renovar_cpf = item["CPF_Real"]
                         st.rerun()
@@ -833,7 +902,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # PREPARA ARQUIVO CSV EM COLUNAS COM CPF MASCARADO
         csv_buffer = io.StringIO()
         campos = ["Nome Completo", "CPF", "Status PEP", "Data de Emissão", "Data de Vencimento", "Status do Prazo", "Operador"]
         writer = csv.DictWriter(csv_buffer, fieldnames=campos, delimiter=';')
@@ -843,7 +911,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         for d in (dados_filtrados if dados_filtrados else dados_processados):
             row_e = {
                 "Nome Completo": d["Nome Completo"],
-                "CPF": d["CPF_Excel"],  # MASCARADO NO EXCEL (ex: 123.***.***-89)
+                "CPF": d["CPF_Excel"],
                 "Status PEP": d["Status PEP"],
                 "Data de Emissão": d["Data de Emissão"],
                 "Data de Vencimento": d["Data de Vencimento"],
@@ -861,3 +929,64 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             mime="text/csv",
             use_container_width=True
         )
+
+# =============================================================================
+# ⚙️ TELA 3: GERENCIADOR DE USUÁRIOS (EXCLUSIVO PARA ADMINISTRADORES)
+# =============================================================================
+elif opcao_menu == "⚙️ Gerenciador de Usuários" and eh_admin:
+    st.title("⚙️ Gerenciador de Usuários Aprovados")
+    st.caption("Painel administrativo para conceder ou revogar acessos de operadores à plataforma.")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col_add1, col_add2 = st.columns([3, 1])
+    with col_add1:
+        novo_email_input = st.text_input("➕ Digite o novo e-mail para autorizar acesso:", placeholder="novo.operador@bks.com.br")
+    with col_add2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("✅ Autorizar Usuário", use_container_width=True):
+            sucesso, msg = adicionar_novo_usuario(novo_email_input)
+            if sucesso:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.warning(msg)
+
+    st.markdown("---")
+    st.subheader("📋 Lista de Usuários com Acesso Liberado")
+
+    lista_usuarios = carregar_emails_autorizados()
+
+    if not lista_usuarios:
+        st.info("Nenhum usuário cadastrado além dos e-mails padrão.")
+    else:
+        col_u_head1, col_u_head2, col_u_head3 = st.columns([3, 2, 1])
+        with col_u_head1:
+            st.markdown("**📧 E-mail Autorizado**")
+        with col_u_head2:
+            st.markdown("**Nível de Acesso**")
+        with col_u_head3:
+            st.markdown("**Ação**")
+        st.markdown("---")
+
+        for idx, usr in enumerate(lista_usuarios):
+            c_u1, c_u2, c_u3 = st.columns([3, 2, 1])
+            with c_u1:
+                st.write(f"**{usr}**")
+            with c_u2:
+                if usr in ADMINISTRADORES:
+                    st.write("⭐ Administrador")
+                else:
+                    st.write("👤 Operador")
+            with c_u3:
+                # Impede que o admin remova a si mesmo
+                if usr in ADMINISTRADORES:
+                    st.caption("Protegido")
+                else:
+                    if st.button("🗑️ Revogar", key=f"btn_del_usr_{idx}"):
+                        ok, m = remover_usuario(usr)
+                        if ok:
+                            st.success(m)
+                            st.rerun()
+                        else:
+                            st.error(m)
+            st.divider()
