@@ -15,9 +15,9 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 # 🔐 CONTROLE DE ADMINISTRADORES E GESTÃO DINÂMICA DE USUÁRIOS APROVADOS
 # -----------------------------------------------------------------------------
 ADMINISTRADORES = [
-    "flaviagodoi@bks.com.br",
-    "carlosalberto@bks.com.br",
-    "operacao@bks.com.br"
+    "flavia.godoi@bks.com.br",
+    "neto.duarte@bks.com.br",
+    "thaina.oliveira@bks.com.br"
 ]
 
 ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
@@ -25,10 +25,11 @@ ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
 def carregar_emails_autorizados():
     """Lê do arquivo local os e-mails liberados ou inicializa com a lista padrão."""
     emails_padrao = [
+        "flavia.godoi@bks.com.br",
+        "neto.duarte@bks.com.br",
+        "thaina.oliveira@bks.com.br",
         "operacao@bks.com.br",
-        "flaviagodoi@bks.com.br",
         "seguros@bks.com.br",
-        "netoduarte@bks.com.br",
         "carlosalberto@bks.com.br",
         "laissilva@bks.com.br"
     ]
@@ -37,7 +38,7 @@ def carregar_emails_autorizados():
         salvar_emails_autorizados(emails_padrao)
         return emails_padrao
 
-    emails = set()
+    emails = set(emails_padrao)
     try:
         with open(ARQUIVO_USUARIOS, mode='r', encoding='utf-8') as f:
             reader = csv.reader(f)
@@ -91,7 +92,6 @@ def verificar_email_autorizado(email: str) -> bool:
     email_clean = email.strip().lower()
     lista_aprovados = carregar_emails_autorizados()
     
-    # Libera e-mails da lista aprovada ou do domínio corporativo @bks.com.br
     if email_clean in lista_aprovados or email_clean.endswith("@bks.com.br"):
         return True
     return False
@@ -377,7 +377,7 @@ if not st.session_state.autenticado:
 # -----------------------------------------------------------------------------
 # 🛡️ BARRA LATERAL (SIDEBAR) & NAVEGAÇÃO
 # -----------------------------------------------------------------------------
-eh_admin = st.session_state.email_logado in ADMINISTRADORES
+eh_admin = st.session_state.email_logado.strip().lower() in [adm.lower() for adm in ADMINISTRADORES]
 
 with st.sidebar:
     if os.path.exists("logo_bks.png"):
@@ -968,18 +968,19 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários" and eh_admin:
             st.markdown("**Ação**")
         st.markdown("---")
 
+        admins_lower = [a.lower() for a in ADMINISTRADORES]
+
         for idx, usr in enumerate(lista_usuarios):
             c_u1, c_u2, c_u3 = st.columns([3, 2, 1])
             with c_u1:
                 st.write(f"**{usr}**")
             with c_u2:
-                if usr in ADMINISTRADORES:
+                if usr.lower() in admins_lower:
                     st.write("⭐ Administrador")
                 else:
                     st.write("👤 Operador")
             with c_u3:
-                # Impede que o admin remova a si mesmo
-                if usr in ADMINISTRADORES:
+                if usr.lower() in admins_lower:
                     st.caption("Protegido")
                 else:
                     if st.button("🗑️ Revogar", key=f"btn_del_usr_{idx}"):
