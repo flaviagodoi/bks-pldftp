@@ -17,18 +17,22 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 ARQUIVO_VENCIMENTOS = "vencimentos.csv"
 
 def registrar_vencimento(nome, cpf, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
-    """Grava o histórico do relatório gerado no arquivo local de controle de vencimentos."""
-    arquivo_existe = os.path.exists(ARQUIVO_VENCIMENTOS)
+    """
+    Grava ou ATUALIZA o histórico do relatório gerado.
+    Evita duplicidade substituindo o registro caso o CPF já exista no arquivo.
+    """
+    cpf_limpo_key = re.sub(r'\D', '', cpf)
+    registros_existentes = carregar_vencimentos()
     
-    # Converte data de vencimento string 'DD/MM/AAAA' para objeto date para ordenação e filtro
     try:
         dt_venc = datetime.strptime(data_vencimento_str, "%d/%m/%Y").strftime("%Y-%m-%d")
     except Exception:
         dt_venc = data_vencimento_str
 
-    nova_linha = {
+    novo_registro = {
         "Nome": nome.upper().strip(),
         "CPF": cpf.strip(),
+        "CPF_Key": cpf_limpo_key,
         "Operador": email_operador,
         "Data_Emissao": data_emissao_dt.strftime("%d/%m/%Y %H:%M"),
         "Status_PEP": status_pep,
@@ -36,13 +40,29 @@ def registrar_vencimento(nome, cpf, email_operador, status_pep, data_emissao_dt,
         "Data_Vencimento_ISO": dt_venc
     }
 
+    # Atualiza o registro existente ou adiciona um novo
+    atualizado = False
+    novos_registros = []
+    for reg in registros_existentes:
+        reg_cpf_key = re.sub(r'\D', '', reg.get("CPF", ""))
+        if reg_cpf_key == cpf_limpo_key and cpf_limpo_key != "":
+            novos_registros.append(novo_registro)
+            atualizado = True
+        else:
+            novos_registros.append(reg)
+
+    if not atualizado:
+        novos_registros.append(novo_registro)
+
     try:
-        with open(ARQUIVO_VENCIMENTOS, mode='a', encoding='utf-8', newline='') as f:
-            campos = ["Nome", "CPF", "Operador", "Data_Emissao", "Status_PEP", "Data_Vencimento", "Data_Vencimento_ISO"]
-            writer = csv.DictWriter(f, fieldnames=campos)
-            if not arquivo_existe:
-                writer.writeheader()
-            writer.writerow(nova_linha)
+        campos = ["Nome", "CPF", "CPF_Key", "Operador", "Data_Emissao", "Status_PEP", "Data_Vencimento", "Data_Vencimento_ISO"]
+        with open(ARQUIVO_VENCIMENTOS, mode='w', encoding='utf-8-sig', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=campos, delimiter=';')
+            writer.writeheader()
+            for r in novos_registros:
+                # Garante que as chaves estejam presentes
+                r_line = {k: r.get(k, "") for k in campos}
+                writer.writerow(r_line)
     except Exception as e:
         st.error(f"Erro ao salvar registro de vencimento: {e}")
 
@@ -53,8 +73,11 @@ def carregar_vencimentos():
     
     registros = []
     try:
-        with open(ARQUIVO_VENCIMENTOS, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
+        with open(ARQUIVO_VENCIMENTOS, mode='r', encoding='utf-8-sig') as f:
+            primeira_linha = f.readline()
+            sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
+            f.seek(0)
+            reader = csv.DictReader(f, delimiter=sep)
             for row in reader:
                 registros.append(row)
     except Exception:
@@ -77,14 +100,12 @@ def validar_cpf(cpf: str) -> bool:
     if len(cpf_limpo) != 11 or cpf_limpo == cpf_limpo[0] * 11:
         return False
     
-    # Primeiro dígito verificador
     soma = sum(int(cpf_limpo[i]) * (10 - i) for i in range(9))
     resto = (soma * 10) % 11
     digito_1 = 0 if resto == 10 else resto
     if digito_1 != int(cpf_limpo[9]):
         return False
         
-    # Segundo dígito verificador
     soma = sum(int(cpf_limpo[i]) * (11 - i) for i in range(10))
     resto = (soma * 10) % 11
     digito_2 = 0 if resto == 10 else resto
@@ -108,9 +129,7 @@ def identificar_arquivo_pep():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """
-    Busca na planilha oficial da CGU com regra adaptativa anti-mascaramento.
-    """
+    """Busca na planilha oficial da CGU com regra adaptativa anti-mascaramento."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -176,9 +195,7 @@ def buscar_wikipedia(nome):
     return ""
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
-    """
-    Analisa se o nome pesquisado aparece vinculado a um cargo público relevante.
-    """
+    """Analisa se o nome pesquisado aparece vinculado a um cargo público relevante."""
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
 
@@ -231,6 +248,10 @@ if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "email_logado" not in st.session_state:
     st.session_state.email_logado = None
+if "renovar_nome" not in st.session_state:
+    st.session_state.renovar_nome = ""
+if "renovar_cpf" not in st.session_state:
+    st.session_state.renovar_cpf = ""
 
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
@@ -271,16 +292,20 @@ with st.sidebar:
     st.markdown(f"📧 **E-mail:** {st.session_state.email_logado}")
     st.markdown("---")
     
-    # NAVEGAÇÃO ENTRE ABAS
+    # Se houver pedido de renovação pendente, força a navegação para a tela de busca
+    if st.session_state.renovar_nome:
+        index_menu = 0
+    else:
+        index_menu = 0
+
     opcao_menu = st.radio(
         "📌 Menu de Navegação:",
         ["🔍 Consulta PLD/FTP", "📊 Gestão de Vencimentos"],
-        index=0
+        index=index_menu
     )
     
     st.markdown("---")
     
-    # STATUS DA PLANILHA OFICIAL LOCAL COM FIXAÇÃO DA DATA (14/08/2026) E CONTADOR DE 30 DIAS
     arquivo_encontrado = identificar_arquivo_pep()
     if arquivo_encontrado:
         data_arquivo = datetime(2026, 8, 14)
@@ -304,6 +329,8 @@ with st.sidebar:
     if st.button("🔒 Sair do Sistema", use_container_width=True):
         st.session_state.autenticado = False
         st.session_state.email_logado = None
+        st.session_state.renovar_nome = ""
+        st.session_state.renovar_cpf = ""
         st.rerun()
 
 # =============================================================================
@@ -314,18 +341,26 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
     st.caption("Pesquisa automatizada em portais de transparência e bases públicas para enquadramento regulatório.")
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # Preenchimento automático caso venha de um clique em "Renovar"
+    val_nome_def = st.session_state.renovar_nome if st.session_state.renovar_nome else ""
+    val_cpf_def = st.session_state.renovar_cpf if st.session_state.renovar_cpf else ""
+
     with st.container():
         st.markdown("### 📋 Dados do Pesquisado")
         col1, col2 = st.columns(2)
         with col1:
-            nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: João da Silva")
+            nome_input = st.text_input("👉 Nome Completo do Pesquisado", value=val_nome_def, placeholder="Ex: João da Silva")
         with col2:
-            cpf_input = st.text_input("👉 CPF do Pesquisado", placeholder="Ex: 000.000.000-00")
+            cpf_input = st.text_input("👉 CPF do Pesquisado", value=val_cpf_def, placeholder="Ex: 000.000.000-00")
 
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
-    if btn_pesquisar:
+    if btn_pesquisar or (st.session_state.renovar_nome and st.session_state.renovar_cpf):
+        # Limpa os estados do clique de renovação após engatar a busca
+        st.session_state.renovar_nome = ""
+        st.session_state.renovar_cpf = ""
+        
         cpf_valido_bool = validar_cpf(cpf_input)
         
         if not nome_input.strip():
@@ -337,7 +372,6 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                 
                 nome_limpo = nome_input.strip()
                 
-                # 1ª CAMADA: CONSULTA NA BASE LOCAL
                 match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
                 
                 if match_planilha:
@@ -347,7 +381,6 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                     orgao_detectado = match_planilha["orgao"]
                     detalhe_cargo = "Cadastro Ativo na Base Oficial do Governo Federal (CGU)"
                 else:
-                    # 2ª CAMADA: VARREDURA WEB
                     origem_identificacao = "Pesquisa em Portais Públicos e Notícias Web"
                     
                     wiki_text = buscar_wikipedia(nome_limpo)
@@ -383,9 +416,6 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                         else:
                             detec_pep = False
 
-                # -----------------------------------------------------------------
-                # RESULTADOS E CÁLCULO DAS DATAS DE VENCIMENTO
-                # -----------------------------------------------------------------
                 SITUACAO_CPF = "VÁLIDO"
                 tz_bsb = timezone(timedelta(hours=-3))
                 agora_dt = datetime.now(tz_bsb)
@@ -415,7 +445,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                     PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                     PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                # GRAVA O REGISTRO NO BANCO LOCAL DE VENCIMENTOS
+                # REGISTRA OU ATUALIZA O VENCIMENTO (SEM DUPLICAR)
                 registrar_vencimento(
                     nome=nome_input,
                     cpf=cpf_input,
@@ -431,7 +461,6 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                 else:
                     st.success("🟢 **RESULTADO: NADA CONSTA (NÃO É PEP)**")
 
-                # REPORTLAB PDF
                 buffer = io.BytesIO()
                 doc = SimpleDocTemplate(
                     buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=45
@@ -651,12 +680,11 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
     else:
         hoje_dt = datetime.now()
         
-        # Processa e categoriza cada registro por status de vencimento
         vencidos = 0
         a_vencer_breve = 0
         validos = 0
         
-        dados_tabela = []
+        dados_processados = []
         for reg in registros:
             try:
                 dt_venc = datetime.strptime(reg["Data_Vencimento"], "%d/%m/%Y")
@@ -674,7 +702,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             except Exception:
                 status_alerta = "⚪ Indefinido"
 
-            dados_tabela.append({
+            dados_processados.append({
                 "Nome Completo": reg.get("Nome", ""),
                 "CPF": reg.get("CPF", ""),
                 "Status PEP": reg.get("Status_PEP", ""),
@@ -684,7 +712,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 "Operador": reg.get("Operador", "")
             })
 
-        # MÉTRAMAS / INDICADORES NO TOPO
+        # METRICAS
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         col_m1.metric("Total de Relatórios", len(registros))
         col_m2.metric("🟢 Dentro do Prazo", validos)
@@ -692,21 +720,81 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         col_m4.metric("🔴 Vencidos / Expirados", vencidos)
 
         st.markdown("---")
-        st.subheader("📋 Lista Geral de Relatórios Emitidos")
+        st.subheader("🔍 Filtros de Busca")
 
-        # Exibe a Tabela
-        st.dataframe(dados_tabela, use_container_width=True)
+        # FILTROS
+        col_f1, col_f2 = st.columns([1, 2])
+        with col_f1:
+            filtro_status = st.selectbox(
+                "Filtrar por Status do Prazo:",
+                ["Todos", "🔴 Apenas Vencidos", "🟡 Vencem em breve", "🟢 Apenas Válidos"]
+            )
+        with col_f2:
+            termo_busca = st.text_input("Buscar por Nome ou CPF:", placeholder="Digite o nome ou CPF...")
 
-        # BOTAO PARA EXPORTAR PARA EXCEL / CSV
+        # APLICA FILTROS
+        dados_filtrados = []
+        for item in dados_processados:
+            # Filtro de Status
+            if filtro_status == "🔴 Apenas Vencidos" and "🔴" not in item["Status do Prazo"]:
+                continue
+            elif filtro_status == "🟡 Vencem em breve" and "🟡" not in item["Status do Prazo"]:
+                continue
+            elif filtro_status == "🟢 Apenas Válidos" and "🟢" not in item["Status do Prazo"]:
+                continue
+
+            # Filtro de Texto
+            if termo_busca:
+                tb_norm = normalizar_texto(termo_busca)
+                nome_norm = normalizar_texto(item["Nome Completo"])
+                cpf_limpo = re.sub(r'\D', '', item["CPF"])
+                tb_limpo = re.sub(r'\D', '', termo_busca)
+                if tb_norm not in nome_norm and (tb_limpo == "" or tb_limpo not in cpf_limpo):
+                    continue
+
+            dados_filtrados.append(item)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📋 Relatórios Cadastrados")
+
+        if not dados_filtrados:
+            st.warning("Nenhum registro localizado com os filtros selecionados.")
+        else:
+            # EXIBIÇÃO INTERATIVA COM BOTAO RENOVAR
+            for idx, item in enumerate(dados_filtrados):
+                c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
+                
+                with c_n:
+                    st.write(f"**{item['Nome Completo']}**")
+                with c_c:
+                    st.write(item["CPF"])
+                with c_p:
+                    st.write(item["Status PEP"])
+                with c_e:
+                    st.write(item["Data de Emissão"])
+                with c_v:
+                    st.write(item["Data de Vencimento"])
+                with c_s:
+                    st.write(item["Status do Prazo"])
+                with c_b:
+                    if st.button("🔄 Renovar", key=f"btn_renovar_{idx}"):
+                        st.session_state.renovar_nome = item["Nome Completo"]
+                        st.session_state.renovar_cpf = item["CPF"]
+                        st.rerun()
+                st.divider()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # BOTAO PARA EXPORTAR PARA EXCEL EM COLUNAS SEPARADAS (DELIMITADOR ';')
         csv_buffer = io.StringIO()
         campos = ["Nome Completo", "CPF", "Status PEP", "Data de Emissão", "Data de Vencimento", "Status do Prazo", "Operador"]
-        writer = csv.DictWriter(csv_buffer, fieldnames=campos)
+        writer = csv.DictWriter(csv_buffer, fieldnames=campos, delimiter=';')
         writer.writeheader()
-        writer.writerows(dados_tabela)
+        writer.writerows(dados_filtrados if dados_filtrados else dados_processados)
 
         st.download_button(
-            label="📥 Exportar Lista de Vencimentos (.CSV para Excel)",
-            data=csv_buffer.getvalue(),
+            label="📥 Exportar Lista em Colunas (.CSV para Excel)",
+            data=csv_buffer.getvalue().encode('utf-8-sig'),
             file_name=f"Controle_Vencimentos_PLD_BKS_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
             use_container_width=True
