@@ -28,10 +28,7 @@ def carregar_emails_autorizados():
         "flavia.godoi@bks.com.br",
         "neto.duarte@bks.com.br",
         "thaina.oliveira@bks.com.br",
-        "operacao@bks.com.br",
-        "seguros@bks.com.br",
-        "carlosalberto@bks.com.br",
-        "laissilva@bks.com.br"
+
     ]
     
     if not os.path.exists(ARQUIVO_USUARIOS):
