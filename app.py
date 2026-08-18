@@ -12,24 +12,24 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🛠️ FUNÇÕES DE FORMATACÃO, GESTÃO DE VENCIMENTOS E BASE LOCAL
+# 🛠️ FUNÇÕES DE FORMATAÇÃO ESTÉTICA, GESTÃO DE VENCIMENTOS E BASE LOCAL
 # -----------------------------------------------------------------------------
 ARQUIVO_VENCIMENTOS = "vencimentos.csv"
 
-def formatar_cpf(cpf_raw: str) -> str:
-    """Aplica a máscara 000.000.000-00 mantendo os zeros à esquerda."""
+def formatar_cpf_estetico(cpf_raw: str) -> str:
+    """Aplica a máscara estética 000.000.000-00 mantendo os zeros à esquerda."""
     nums = re.sub(r'\D', '', str(cpf_raw))
     if len(nums) == 11:
         return f"{nums[:3]}.{nums[3:6]}.{nums[6:9]}-{nums[9:]}"
-    return cpf_raw.strip()
+    return str(cpf_raw).strip()
 
-def registrar_vencimento(nome, cpf, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
+def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
     """
     Grava ou ATUALIZA o histórico do relatório gerado.
-    Garante a formatação do CPF e preserva os zeros à esquerda.
+    Armazena o CPF esteticamente formatado sem alterar a chave interna de busca.
     """
-    cpf_limpo_key = re.sub(r'\D', '', cpf)
-    cpf_formatado = formatar_cpf(cpf)
+    cpf_limpo_key = re.sub(r'\D', '', cpf_raw)
+    cpf_formatado = formatar_cpf_estetico(cpf_raw)
     registros_existentes = carregar_vencimentos()
     
     try:
@@ -100,7 +100,7 @@ def normalizar_texto(txt):
     return " ".join(limpo.split())
 
 def validar_cpf(cpf: str) -> bool:
-    """Valida o cálculo dos dígitos verificadores do CPF (Módulo 11)."""
+    """Valida o cálculo dos dígitos verificadores do CPF (Módulo 11) - aceita qualquer formato."""
     cpf_limpo = re.sub(r'\D', '', str(cpf))
     
     if len(cpf_limpo) != 11 or cpf_limpo == cpf_limpo[0] * 11:
@@ -135,7 +135,10 @@ def identificar_arquivo_pep():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """Busca na planilha oficial da CGU com regra adaptativa anti-mascaramento."""
+    """
+    Busca flexível na planilha oficial da CGU:
+    Extrai apenas os números para verificação e ignora formatação.
+    """
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -342,7 +345,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
     st.markdown("<br>", unsafe_allow_html=True)
 
     val_nome_def = st.session_state.renovar_nome if st.session_state.renovar_nome else ""
-    val_cpf_def = formatar_cpf(st.session_state.renovar_cpf) if st.session_state.renovar_cpf else ""
+    val_cpf_def = formatar_cpf_estetico(st.session_state.renovar_cpf) if st.session_state.renovar_cpf else ""
 
     with st.container():
         st.markdown("### 📋 Dados do Pesquisado")
@@ -350,7 +353,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
         with col1:
             nome_input = st.text_input("👉 Nome Completo do Pesquisado", value=val_nome_def, placeholder="Ex: João da Silva")
         with col2:
-            cpf_input = st.text_input("👉 CPF do Pesquisado", value=val_cpf_def, placeholder="000.000.000-00")
+            cpf_input = st.text_input("👉 CPF do Pesquisado (Números ou Formatado)", value=val_cpf_def, placeholder="000.000.000-00")
 
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
@@ -360,7 +363,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
         st.session_state.renovar_cpf = ""
         
         cpf_valido_bool = validar_cpf(cpf_input)
-        cpf_formatado_input = formatar_cpf(cpf_input)
+        cpf_formatado_input = formatar_cpf_estetico(cpf_input)
         
         if not nome_input.strip():
             st.warning("⚠️ Por favor, preencha o Nome Completo antes de continuar.")
@@ -371,7 +374,7 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                 
                 nome_limpo = nome_input.strip()
                 
-                match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_formatado_input)
+                match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
                 
                 if match_planilha:
                     detec_pep = True
@@ -444,10 +447,10 @@ if opcao_menu == "🔍 Consulta PLD/FTP":
                     PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                     PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                # GRAVA O REGISTRO FORMATADO NO BANCO LOCAL (SEM CORTAR ZERO)
+                # REGISTRA / ATUALIZA NO CONTROLE DE VENCIMENTOS COM FORMATAÇÃO
                 registrar_vencimento(
                     nome=nome_input,
-                    cpf=cpf_formatado_input,
+                    cpf_raw=cpf_input,
                     email_operador=st.session_state.email_logado,
                     status_pep=STATUS_PEP,
                     data_emissao_dt=agora_dt,
@@ -701,12 +704,12 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             except Exception:
                 status_alerta = "⚪ Indefinido"
 
-            cpf_fmt = formatar_cpf(reg.get("CPF", ""))
+            cpf_fmt = formatar_cpf_estetico(reg.get("CPF", ""))
 
             dados_processados.append({
                 "Nome Completo": reg.get("Nome", ""),
                 "CPF": cpf_fmt,
-                "CPF_Excel": f'="{cpf_fmt}"',  # Força o Excel a preservar os zeros à esquerda
+                "CPF_Excel": f'="{cpf_fmt}"',  # Preserva os zeros à esquerda no Excel
                 "Status PEP": reg.get("Status_PEP", ""),
                 "Data de Emissão": reg.get("Data_Emissao", ""),
                 "Data de Vencimento": reg.get("Data_Vencimento", ""),
@@ -757,6 +760,25 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         if not dados_filtrados:
             st.warning("Nenhum registro localizado com os filtros selecionados.")
         else:
+            # LINHA DE CABEÇALHO DAS COLUNAS DA TABELA
+            col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7 = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
+            with col_h1:
+                st.markdown("**👤 Nome Completo**")
+            with col_h2:
+                st.markdown("**📄 CPF**")
+            with col_h3:
+                st.markdown("**🛡️ Status PEP**")
+            with col_h4:
+                st.markdown("**📅 Data Emissão**")
+            with col_h5:
+                st.markdown("**⏰ Data Vencimento**")
+            with col_h6:
+                st.markdown("**📌 Status Prazo**")
+            with col_h7:
+                st.markdown("**⚡ Ação**")
+            st.markdown("---")
+
+            # LINHAS DE DADOS
             for idx, item in enumerate(dados_filtrados):
                 c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
                 
@@ -781,17 +803,16 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # PREPARA ARQUIVO CSV EM COLUNAS COM TRATAMENTO DE CPF PARA EXCEL
+        # ARQUIVO CSV EM COLUNAS PARA O EXCEL
         csv_buffer = io.StringIO()
         campos = ["Nome Completo", "CPF", "Status PEP", "Data de Emissão", "Data de Vencimento", "Status do Prazo", "Operador"]
         writer = csv.DictWriter(csv_buffer, fieldnames=campos, delimiter=';')
         writer.writeheader()
         
-        # Copia dados formatando o CPF para não perder zero à esquerda no Excel
         dados_excel = []
         for d in (dados_filtrados if dados_filtrados else dados_processados):
             row_e = d.copy()
-            row_e["CPF"] = d["CPF_Excel"]  # Aplica a instrução ="(000.000.000-00)" para o Excel
+            row_e["CPF"] = d["CPF_Excel"]
             del row_e["CPF_Excel"]
             dados_excel.append(row_e)
 
