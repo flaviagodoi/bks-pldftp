@@ -49,10 +49,10 @@ def sincronizar_com_github(caminho_arquivo, mensagem_commit):
 # 🔐 CONTROLE DE ACESSO, HIERARQUIA DE CARGOS E USUÁRIOS
 # -----------------------------------------------------------------------------
 CARGOS_NATIVOS = {
-    "flavia.godoi@bks.com.br": "Administrador Master",
+    "flavia.godoi@bks.com.br": "Administrador/Programador",
     "marcio.akama@bks.com.br": "Diretoria",
     "leiko.akama@bks.com.br": "Diretoria",
-    "neto.duarte@bks.com.br": "Administrador",
+    "neto.duarte@bks.com.br": "Gerente",
     "thaina.oliveira@bks.com.br": "Administrador"
 }
 
@@ -72,7 +72,6 @@ def carregar_usuarios():
     """Carrega o dicionário de usuários mantendo a hierarquia corporativa nativa."""
     usuarios = {}
     
-    # 1. Carrega do CSV se existir
     if os.path.exists(ARQUIVO_USUARIOS):
         try:
             with open(ARQUIVO_USUARIOS, mode='r', encoding='utf-8') as f:
@@ -85,12 +84,10 @@ def carregar_usuarios():
         except Exception:
             pass
 
-    # 2. Garante os usuários padrão
     for usr in USUARIOS_PADRAO_NATIVOS:
         if usr.lower() not in usuarios:
             usuarios[usr.lower()] = "Operador"
 
-    # 3. Garante a hierarquia de liderança nativa
     for email_adm, cargo_adm in CARGOS_NATIVOS.items():
         usuarios[email_adm.lower()] = cargo_adm
 
@@ -150,7 +147,7 @@ def eh_administrador(email: str) -> bool:
     email_clean = email.strip().lower()
     dict_usuarios = carregar_usuarios()
     cargo = dict_usuarios.get(email_clean, "Operador")
-    return cargo in ["Administrador Master", "Diretoria", "Administrador"] or email_clean in [a.lower() for a in CARGOS_NATIVOS.keys()]
+    return cargo in ["Administrador/Programador", "Diretoria", "Gerente", "Administrador"] or email_clean in [a.lower() for a in CARGOS_NATIVOS.keys()]
 
 def obter_cargo_usuario(email: str) -> str:
     """Retorna o título oficial do cargo do e-mail informado."""
@@ -405,12 +402,32 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ESTILIZAÇÃO CSS CUSTOMIZADA (INCLUI BOTOES AZUIS NATIVOS)
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
     h1 { color: #0056b3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; margin-bottom: 0px; }
-    div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 12px 24px; transition: all 0.3s ease; }
+    div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 10px 20px; transition: all 0.3s ease; }
     div.stButton > button:first-child:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+    
+    /* ESTILIZAÇÃO DOS BOTOES AZUIS DA RECEITA FEDERAL */
+    a.btn-receita-azul {
+        display: block;
+        width: 100%;
+        background-color: #0056b3;
+        color: white !important;
+        text-align: center;
+        font-weight: bold;
+        padding: 12px 20px;
+        border-radius: 6px;
+        text-decoration: none;
+        margin-top: 10px;
+        transition: all 0.3s ease;
+    }
+    a.btn-receita-azul:hover {
+        background-color: #003366;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -491,7 +508,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # NOTIFICAÇÃO DE BASE DE DADOS (VISÍVEL PARA TODOS)
+    # NOTIFICAÇÃO DE BASE DE DADOS (VISÍVEL PARA TODOS COM FONTE INCLUÍDA)
     arquivo_encontrado = identificar_arquivo_pep()
     if arquivo_encontrado:
         data_arquivo = datetime(2026, 8, 14)
@@ -503,6 +520,7 @@ with st.sidebar:
         else:
             st.success("📁 **Base PEP Local:** Carregada e Ativa")
             st.caption(f"🗓️ *Inclusão da base: {data_arquivo.strftime('%d/%m/%Y')}*")
+            st.caption("🏛️ *Fonte: Portal da Transparência - Controladoria Geral da União*")
     else:
         st.info("🌐 **Base PEP Local:** Não enc. (Modo Web Ativo)")
 
@@ -520,22 +538,22 @@ with st.sidebar:
 # =============================================================================
 if opcao_menu == "🏛️ Consultas Receita Federal (PF/PJ)":
     st.title("🏛️ Consultas Oficiais na Receita Federal")
-    st.caption("Acesso direto e seguro aos portais governamentais para emissão de Comprovante de Situação Cadastral de CPF e CNPJ.")
+    st.caption("Acesso direto aos portais governamentais para emissão de Comprovante de Situação Cadastral de CPF e CNPJ.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     col_rf1, col_rf2 = st.columns(2)
     
     with col_rf1:
         st.markdown("### 📄 Pessoa Física (CPF)")
-        st.write("Acesse a página oficial da Receita Federal para emitir e validar o comprovante de situação cadastral do CPF do cliente ou parceiro.")
-        st.link_button("👉 Acessar Consulta CPF (Receita Federal)", "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp", use_container_width=True, type="primary")
+        st.write("Acesse a página oficial da Receita Federal para emitir e validar o comprovante de situação cadastral do CPF.")
+        st.markdown('<a href="https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp" target="_blank" class="btn-receita-azul">👉 Acessar Consulta CPF (Receita Federal)</a>', unsafe_allow_html=True)
 
     with col_rf2:
         st.markdown("### 🏢 Pessoa Jurídica (CNPJ)")
-        st.write("Acesse a página oficial da Receita Federal para emitir o Cartão CNPJ e verificar a situação cadastral da empresa e quadro societário.")
-        st.link_button("👉 Acessar Consulta CNPJ (Receita Federal)", "https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva/cnpjreva_solicitacao.asp", use_container_width=True, type="primary")
+        st.write("Acesse a página oficial da Receita Federal para emitir o Cartão CNPJ e verificar a situação cadastral da empresa.")
+        st.markdown('<a href="https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva/cnpjreva_solicitacao.asp" target="_blank" class="btn-receita-azul">👉 Acessar Consulta CNPJ (Receita Federal)</a>', unsafe_allow_html=True)
 
-    st.markdown("---")
+    st.markdown("<br><br>---", unsafe_allow_html=True)
     st.info("💡 **Dica de Governança:** É recomendado anexar a Consulta de Situação Cadastral emitida nestes links ao laudo final de PLD/FTP para documentação de auditoria.")
 
 # =============================================================================
@@ -979,8 +997,9 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 st.markdown("**📌 Status Prazo**")
             with col_h7:
                 st.markdown("**⚡ Ação**")
-            st.markdown("---")
+            st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
+            # REDUÇÃO SUTIL DE ESPAÇAMENTO DA TABELA
             for idx, item in enumerate(dados_filtrados):
                 c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
                 
@@ -1001,7 +1020,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                         st.session_state.renovar_nome = item["Nome Completo"]
                         st.session_state.renovar_cpf = item["CPF_Real"]
                         st.rerun()
-                st.divider()
+                st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #e6e6e6;'>", unsafe_allow_html=True)
 
         # BOTÃO DE EXPORTAÇÃO EXCLUSIVO PARA ADMINISTRADORES
         if eh_admin:
@@ -1074,25 +1093,27 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
             st.markdown("**Cargo / Perfil**")
         with col_u_head3:
             st.markdown("**Ação**")
-        st.markdown("---")
+        st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
         admins_nativos_lower = [a.lower() for a in CARGOS_NATIVOS.keys()]
 
+        # REDUÇÃO SUTIL DE ESPAÇAMENTO NA LISTA DE USUÁRIOS
         for idx, (usr_email, cargo_usr) in enumerate(sorted(dict_usuarios.items())):
             c_u1, c_u2, c_u3 = st.columns([3, 2, 1])
             with c_u1:
                 st.write(f"**{usr_email}**")
             with c_u2:
-                if cargo_usr == "Administrador Master":
-                    st.write("⭐ Administrador Master")
+                if cargo_usr == "Administrador/Programador":
+                    st.write("⭐ Administrador/Programador")
                 elif cargo_usr == "Diretoria":
                     st.write("🏛️ Diretoria")
+                elif cargo_usr == "Gerente":
+                    st.write("💼 Gerente")
                 elif cargo_usr in ["Administrador", "admin"]:
                     st.write("🔑 Administrador")
                 else:
                     st.write("👤 Operador")
             with c_u3:
-                # SOMENTE ADMIN PODE DELETAR (E NÃO PODE DELETAR OS ADMINS NATIVOS/DIRETORIA OU A SI MESMO)
                 if eh_admin:
                     if usr_email in admins_nativos_lower or usr_email == st.session_state.email_logado.strip().lower():
                         st.caption("Protegido")
@@ -1106,4 +1127,4 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
                                 st.error(msg_del)
                 else:
                     st.caption("🔒 Leitura")
-            st.divider()
+            st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #e6e6e6;'>", unsafe_allow_html=True)
