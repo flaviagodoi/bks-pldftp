@@ -46,7 +46,7 @@ def sincronizar_com_github(caminho_arquivo, mensagem_commit):
         pass
 
 # -----------------------------------------------------------------------------
-# 🔐 CONTROLE DE ACESSOS, ADMINISTRADORES E USUÁRIOS
+# 🔐 CONTROLE DE ACESSO, ADMINISTRADORES E USUÁRIOS
 # -----------------------------------------------------------------------------
 ADMINISTRADORES_NATIVOS = [
     "flavia.godoi@bks.com.br",
@@ -69,14 +69,12 @@ USUARIOS_PADRAO_NATIVOS = [
 ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
 
 def carregar_usuarios():
-    """Carrega o dicionário de usuários com seus respectivos papéis ('admin' ou 'operador')."""
+    """
+    Carrega o dicionário de usuários mantendo a prioridade dos Administradores Nativos.
+    """
     usuarios = {}
-    for adm in ADMINISTRADORES_NATIVOS:
-        usuarios[adm.lower()] = "admin"
-    for usr in USUARIOS_PADRAO_NATIVOS:
-        if usr.lower() not in usuarios:
-            usuarios[usr.lower()] = "operador"
-
+    
+    # 1. Carrega do CSV se existir
     if os.path.exists(ARQUIVO_USUARIOS):
         try:
             with open(ARQUIVO_USUARIOS, mode='r', encoding='utf-8') as f:
@@ -88,6 +86,15 @@ def carregar_usuarios():
                         usuarios[email] = papel
         except Exception:
             pass
+
+    # 2. Garante os usuários padrão
+    for usr in USUARIOS_PADRAO_NATIVOS:
+        if usr.lower() not in usuarios:
+            usuarios[usr.lower()] = "operador"
+
+    # 3. GARANTE E FORÇA OS ADMINS NATIVOS COMO 'admin'
+    for adm in ADMINISTRADORES_NATIVOS:
+        usuarios[adm.lower()] = "admin"
 
     return usuarios
 
@@ -121,6 +128,9 @@ def remover_usuario(email_remover):
     email_clean = email_remover.strip().lower()
     dict_atual = carregar_usuarios()
     
+    if email_clean in [a.lower() for a in ADMINISTRADORES_NATIVOS]:
+        return False, "E-mail de administrador nativo protegido contra exclusão."
+
     if email_clean in dict_atual:
         del dict_atual[email_clean]
         salvar_usuarios_csv(dict_atual)
@@ -991,7 +1001,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 # =============================================================================
 elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.title("⚙️ Gerenciador de Usuários Aprovados")
-    st.caption("Painel administrativo para controle de acessos e permissões dos operadores.")
+    st.caption("Painel de controle de acessos e permissões dos operadores.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     # FORMULÁRIO DE INCLUSÃO (EXCLUSIVO PARA ADMINS)
@@ -1028,22 +1038,24 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
             st.markdown("**Ação**")
         st.markdown("---")
 
+        admins_nativos_lower = [a.lower() for a in ADMINISTRADORES_NATIVOS]
+
         for idx, (usr_email, papel) in enumerate(sorted(dict_usuarios.items())):
             c_u1, c_u2, c_u3 = st.columns([3, 2, 1])
             with c_u1:
                 st.write(f"**{usr_email}**")
             with c_u2:
-                if papel == "admin":
+                if papel == "admin" or usr_email in admins_nativos_lower:
                     st.write("⭐ Administrador")
                 else:
                     st.write("👤 Operador")
             with c_u3:
-                # SOMENTE ADMIN PODE DELETAR (E NÃO PODE DELETAR SI MESMO)
+                # SOMENTE ADMIN PODE DELETAR (E NÃO PODE DELETAR OS ADMINS NATIVOS OU A SI MESMO)
                 if eh_admin:
-                    if usr_email.lower() == st.session_state.email_logado.strip().lower():
-                        st.caption("Você")
+                    if usr_email in admins_nativos_lower or usr_email == st.session_state.email_logado.strip().lower():
+                        st.caption("Protegido")
                     else:
-                        if st.button("🗑️ Revogar", key=f"btn_delete_user_{usr_email}_{idx}"):
+                        if st.button("🗑️ Revogar", key=f"btn_del_usr_final_{usr_email}_{idx}"):
                             ok, msg_del = remover_usuario(usr_email)
                             if ok:
                                 st.success(msg_del)
