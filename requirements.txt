@@ -1,6 +1,6 @@
 streamlit
 requests
-PIL
+Pillow
 duckduckgo-search
 reportlab
 PyGithub
