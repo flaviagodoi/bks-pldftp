@@ -1,4 +1,6 @@
 streamlit
-pillow
-ddgs
+requests
+PIL
+duckduckgo-search
 reportlab
+PyGithub
