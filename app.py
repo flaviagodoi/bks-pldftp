@@ -275,7 +275,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MOCAMISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA SEARCH API + WEB FALLBACK)
+# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA SEARCH API + WEB FALLBACK)
 # -----------------------------------------------------------------------------
 def identificar_arquivo_pep():
     """Localiza o arquivo da planilha de PEPs no diretório local."""
@@ -347,11 +347,10 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
 def buscar_web_robusta(nome):
     """
-    Compila dados da Wikipédia (via API de Busca Textual Ampla) e portais públicos sem risco de bloqueio de IP.
+    Compila dados da Wikipédia e portais públicos.
     """
     texto_compilado = ""
     
-    # 1. API de Busca Textual na Wikipédia (Ilimitada e sem bloqueio no Streamlit Cloud)
     try:
         url_wiki = "https://pt.wikipedia.org/w/api.php"
         params_search = {
@@ -384,7 +383,6 @@ def buscar_web_robusta(nome):
     except Exception:
         pass
 
-    # 2. DuckDuckGo HTML Scraping (Fallback para Portais Noticiosos)
     try:
         url_ddg = "https://html.duckduckgo.com/html/"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -396,7 +394,6 @@ def buscar_web_robusta(nome):
     except Exception:
         pass
 
-    # 3. DuckDuckGo API Library (Contingência Adicional)
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(f'"{nome}" politico OR vice prefeito OR senador', max_results=4))
@@ -409,16 +406,19 @@ def buscar_web_robusta(nome):
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     """
-    Analisa vinculação do Nome Completo (e suas citações abreviadas) a cargos públicos no raio de 300 caracteres.
+    Analisa a presença de cargos públicos e diferencia entre enquadramento DIRETO ou FAMILIAR (Filho, Esposa, Cônjuge, etc.).
+    Retorna uma tupla: (tipo_enquadramento, cargo_ou_descricao)
     """
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
 
-    partes = nome_norm.split()
-    variacoes_nome = [nome_norm]
-    if len(partes) >= 3:
-        variacoes_nome.append(f"{partes[0]} {partes[-1]}")  # ex: gaudencio lucena
-        variacoes_nome.append(f"{partes[0]} {partes[-2]} {partes[-1]}") # ex: gaudencio de lucena
+    if not texto_norm or not nome_norm:
+        return None, None
+
+    sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
+    palavras = nome_norm.split()
+    tem_sufixo = palavras[-1] in sufixos_familiares
+    nome_base_pai = " ".join(palavras[:-1]) if tem_sufixo else None
 
     cargos_pep = [
         "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
@@ -429,19 +429,36 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
         "ex prefeito", "politico", "politica", "suplente", "candidato", "vice"
     ]
 
-    for var_nome in variacoes_nome:
-        if var_nome in texto_norm:
-            indices = [m.start() for m in re.finditer(re.escape(var_nome), texto_norm)]
-            for idx in indices:
-                inicio_janela = max(0, idx - 300)
-                fim_janela = min(len(texto_norm), idx + len(var_nome) + 300)
-                trecho = texto_norm[inicio_janela:fim_janela]
+    termos_parentesco = [
+        "filho do", "filho de", "filha do", "filha de",
+        "esposa do", "esposa de", "esposo do", "esposo de",
+        "conjuge do", "conjuge de", "marido do", "marido de",
+        "mulher do", "mulher de", "casado com", "casada com",
+        "neto do", "neto de", "neta do", "neta de",
+        "sobrinho do", "sobrinho de", "sobrinha do", "sobrinha de",
+        "herdeiro do", "herdeiro de", "pai do", "pai de", "mae do", "mae de",
+        "irmao do", "irmao de", "irma do", "irma de", "parente de", "parente do"
+    ]
 
-                for cargo in cargos_pep:
-                    if cargo in trecho:
-                        return cargo.title()
+    indices = [m.start() for m in re.finditer(re.escape(nome_norm), texto_norm)]
+    if not indices and nome_base_pai:
+        indices = [m.start() for m in re.finditer(re.escape(nome_base_pai), texto_norm)]
 
-    return None
+    for idx in indices:
+        inicio_janela = max(0, idx - 300)
+        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 300)
+        trecho = texto_norm[inicio_janela:fim_janela]
+
+        for cargo in cargos_pep:
+            if cargo in trecho:
+                tem_relacao_parentesco = any(rel in trecho for rel in termos_parentesco) or tem_sufixo
+                
+                if tem_relacao_parentesco:
+                    return "FAMILIAR", f"Vínculo Familiar / Cônjuge de Agente Político ({cargo.title()})"
+                else:
+                    return "DIRETO", cargo.title()
+
+    return None, None
 
 # -----------------------------------------------------------------------------
 # 🔑 CONFIGURAÇÃO DE ACESSO E AUTENTICAÇÃO
@@ -641,12 +658,14 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
             with st.spinner("🔎 Consultando base oficial e realizando varredura web de governança..."):
                 
                 nome_limpo = nome_input.strip()
+                tipo_enquadramento = None
                 
                 # 1. PRIMEIRA OPÇÃO: BUSCA NA PLANILHA LOCAL DA CGU
                 match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
                 
                 if match_planilha:
                     detec_pep = True
+                    tipo_enquadramento = "DIRETO"
                     origem_identificacao = f"Base Oficial de PEPs ({match_planilha['detalhe']})"
                     cargo_detectado = match_planilha["cargo"]
                     orgao_detectado = match_planilha["orgao"]
@@ -654,11 +673,11 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                 else:
                     # 2. SEGUNDA OPÇÃO: BUSCA WIKIPÉDIA + VARREDURA WEB ROBUSTA
                     texto_web_compilado = buscar_web_robusta(nome_limpo)
-                    cargo_web = analisar_proximidade_cargo(texto_web_compilado, nome_limpo)
+                    tipo_enquadramento, cargo_web = analisar_proximidade_cargo(texto_web_compilado, nome_limpo)
 
                     if cargo_web:
                         detec_pep = True
-                        cargo_detectado = f"Agente Político / Exposição Pública ({cargo_web})"
+                        cargo_detectado = cargo_web
                         orgao_detectado = "Administração Pública / Registro Histórico"
                         detalhe_cargo = "Histórico Mapeado em Fontes Públicas e Notícias Web"
                         origem_identificacao = "Pesquisa em Portais Públicos e Notícias Web"
@@ -672,19 +691,29 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
 
                 if detec_pep:
                     STATUS_PEP = "SIM"
-                    PEP_VINCULO = "NÃO CONSTA"
+                    
+                    if tipo_enquadramento == "FAMILIAR":
+                        PEP_VINCULO = "SINALIZADO"
+                        RELACAO_2GRAU = "Relacionamento próximo"
+                        PRAZO_RENOVAÇÃO = "06 MESES"
+                        PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
+                    else:
+                        PEP_VINCULO = "NÃO CONSTA"
+                        RELACAO_2GRAU = "Sem vínculos adicionais"
+                        PRAZO_RENOVAÇÃO = "06 MESES"
+                        PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
+
                     CARGOS_EXERCIDOS = cargo_detectado
                     ORGAO_ENTIDADE = orgao_detectado
                     DETALHE_EXPOSICAO = detalhe_cargo
                     RISCO_FINAL = "ALTO RISCO"
-                    PRAZO_RENOVAÇÃO = "06 MESES"
                     APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou histórico em alta função pública / PEP ({origem_identificacao})"
                     PERFIL_OP = "Pessoa Politicamente Exposta (PEP)"
                     PARECER = f"Identificado enquadramento regulatório de PEP ({cargo_detectado}). Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
-                    PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
                 else:
                     STATUS_PEP = "NÃO"
                     PEP_VINCULO = "NÃO CONSTA"
+                    RELACAO_2GRAU = "Sem vínculos mapeados"
                     CARGOS_EXERCIDOS = "Nenhum cargo público detectado"
                     ORGAO_ENTIDADE = "Sem vínculo identificado"
                     DETALHE_EXPOSICAO = "Sem histórico de exposição pública registrado"
@@ -731,9 +760,9 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
 
                 def format_val(key, text):
                     u = text.strip().upper()
-                    if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO']:
+                    if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO', 'RELACAO_2GRAU']:
                         bg_col = "#28a745"
-                        if u in ['SIM', 'ALTO RISCO', '06 MESES']:
+                        if u in ['SIM', 'ALTO RISCO', '06 MESES', 'RELACIONAMENTO PRÓXIMO', 'RELACIONAMENTO PROXIMO', 'SINALIZADO']:
                             bg_col = "#dc3545"
                         elif u in ['MÉDIO RISCO']:
                             bg_col = "#ffc107"
@@ -865,7 +894,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                 ])
 
                 make_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
-                    ("RELAÇÃO 2º GRAU PEP", "Sem vínculos mapeados"),
+                    ("RELAÇÃO 2º GRAU PEP", RELACAO_2GRAU, "RELACAO_2GRAU"),
                     ("SOCIEDADES E PARTICIPAÇÕES", "Sem restrições ativas")
                 ])
 
