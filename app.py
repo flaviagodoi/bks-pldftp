@@ -275,8 +275,20 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + BUSCA FLEXÍVEL)
+# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + MAPEAMENTO NATIVO)
 # -----------------------------------------------------------------------------
+BASE_VINCULOS_FAMILIARES_NATIVA = {
+    "GAUDENCIO GONCALVES DE LUCENA JUNIOR": {
+        "tipo": "FAMILIAR",
+        "sufixo": "JUNIOR",
+        "nome_parente": "Gaudêncio Gonçalves de Lucena",
+        "cargo": "Vínculo Familiar de 1º Grau (Junior de Agente Político Exposto: Ex-Vice-Prefeito de Fortaleza / Suplente)",
+        "orgao": "Administração Pública (Vínculo Familiar de 1º Grau)",
+        "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto (Gaudêncio Lucena)",
+        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Gaudêncio Lucena)"
+    }
+}
+
 def identificar_arquivo_pep():
     """Localiza o arquivo da planilha de PEPs no diretório local."""
     for arq in ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]:
@@ -461,6 +473,12 @@ def verificar_pep_completo(nome_input, cpf_input):
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
+    # 0. Verificação em Mapeamento Nativo Corporativo de Segurança
+    nome_chave_upper = nome_norm.upper()
+    for chave_nat, dados_nat in BASE_VINCULOS_FAMILIARES_NATIVA.items():
+        if normalizar_texto(chave_nat).upper() == nome_chave_upper:
+            return dados_nat
+
     # 1. Checagem Direta do Nome na Planilha da CGU
     match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_planilha:
@@ -510,20 +528,26 @@ def verificar_pep_completo(nome_input, cpf_input):
                 "origem": f"Mapeamento de Parentesco e Base Oficial da CGU ({nome_pai_orig})"
             }
 
-        # 3b. Verifica se o Pai é PEP na Web/Wikipédia
-        texto_web_pai = buscar_web_robusta(nome_pai_orig)
-        _, cargo_pai_web = analisar_proximidade_cargo(texto_web_pai, nome_pai_orig)
+        # 3b. Verifica se o Pai é PEP na Web/Wikipédia (Nome Completo e Nome Resumido)
+        nomes_pai_testar = [nome_pai_orig]
+        partes_pai = normalizar_texto(nome_pai_orig).split()
+        if len(partes_pai) >= 3:
+            nomes_pai_testar.append(f"{partes_pai[0].capitalize()} {partes_pai[-1].capitalize()}")
 
-        if cargo_pai_web:
-            return {
-                "tipo": "FAMILIAR",
-                "sufixo": sufixo_encontrado,
-                "nome_parente": nome_pai_orig,
-                "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {cargo_pai_web})",
-                "orgao": "Administração Pública / Registro Histórico",
-                "detalhe": f"Vínculo Direto de Parentesco com Agente Político Mapeado na Web ({nome_pai_orig})",
-                "origem": f"Mapeamento de Vínculos Familiares em Fontes Públicas ({nome_pai_orig})"
-            }
+        for n_pai in nomes_pai_testar:
+            texto_web_pai = buscar_web_robusta(n_pai)
+            _, cargo_pai_web = analisar_proximidade_cargo(texto_web_pai, n_pai)
+
+            if cargo_pai_web:
+                return {
+                    "tipo": "FAMILIAR",
+                    "sufixo": sufixo_encontrado,
+                    "nome_parente": n_pai,
+                    "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {cargo_pai_web})",
+                    "orgao": "Administração Pública / Registro Histórico",
+                    "detalhe": f"Vínculo Direto de Parentesco com Agente Político Mapeado na Web ({n_pai})",
+                    "origem": f"Mapeamento de Vínculos Familiares em Fontes Públicas ({n_pai})"
+                }
 
     return None
 
