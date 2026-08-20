@@ -207,6 +207,73 @@ def validar_cpf(cpf: str) -> bool:
         
     return True
 
+def nomes_sao_compativeis(nome1, nome2):
+    """
+    Compara se dois nomes são razoavelmente parecidos/compatíveis (evita cadastrar CPF de um para o nome de outro).
+    """
+    n1 = normalizar_texto(nome1)
+    n2 = normalizar_texto(nome2)
+    if not n1 or not n2:
+        return True
+
+    p1 = set(n1.split())
+    p2 = set(n2.split())
+
+    # Remove preposições comuns
+    ignorar = {"de", "da", "do", "das", "dos", "e"}
+    p1 = p1 - ignorar
+    p2 = p2 - ignorar
+
+    intersecao = p1.intersection(p2)
+    
+    # Se houver pelo menos 2 palavras idênticas ou se o primeiro nome + sobrenome baterem
+    if len(intersecao) >= 2 or (list(n1.split())[0] == list(n2.split())[0] and len(intersecao) >= 1):
+        return True
+    return False
+
+def validar_coerencia_nome_cpf(nome_input, cpf_input):
+    """
+    Verifica se o CPF informado não pertence a outra pessoa cadastrada no banco ou na planilha CGU.
+    """
+    cpf_limpo = re.sub(r'\D', '', str(cpf_input))
+    if len(cpf_limpo) != 11:
+        return True, ""
+
+    # 1. Checa histórico no Banco Supabase
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT nome FROM vencimentos_pld WHERE cpf_key = :key"), {"key": cpf_limpo}).fetchone()
+                if res and res[0]:
+                    nome_banco = res[0]
+                    if not nomes_sao_compativeis(nome_input, nome_banco):
+                        return False, f"O CPF {formatar_cpf_estetico(cpf_input)} já possui laudo registrado no sistema para '{nome_banco}'. O nome informado ({nome_input.upper()}) é incompatível."
+        except Exception:
+            pass
+
+    # 2. Checa com a Planilha da CGU (se o miolo do CPF estiver na CGU)
+    caminho_cgu = identificar_arquivo_pep()
+    if caminho_cgu:
+        miolo_cpf = cpf_limpo[3:9]
+        try:
+            with open(caminho_cgu, mode='r', encoding='utf-8', errors='ignore') as f:
+                primeira_linha = f.readline()
+                sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
+                f.seek(0)
+                reader = csv.DictReader(f, delimiter=sep)
+                for row in reader:
+                    cpf_row = (row.get('CPF') or row.get('Cpf') or row.get('CPF_PEP') or "")
+                    cpf_row_nums = re.sub(r'\D', '', cpf_row)
+                    if miolo_cpf and len(cpf_row_nums) >= 6 and miolo_cpf in cpf_row_nums:
+                        nome_cgu = (row.get('Nome_PEP') or row.get('NOME_PEP') or row.get('Nome') or "")
+                        if nome_cgu and not nomes_sao_compativeis(nome_input, nome_cgu):
+                            return False, f"O CPF informado consta na base da CGU registrado para '{nome_cgu}'. O nome digitado ({nome_input.upper()}) não é compatível."
+        except Exception:
+            pass
+
+    return True, ""
+
 def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
     """Grava o registro de forma PERMANENTE no banco de dados do Supabase."""
     cpf_limpo_key = re.sub(r'\D', '', str(cpf_raw))
@@ -445,7 +512,6 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     if not texto_norm or not nome_norm:
         return None, None
 
-    # Cargos Públicos e Direção Partidária (PEP Direto conforme COAF/BCB)
     cargos_pep = [
         "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
         "prefeito", "prefeita", "vice prefeito", "vice governadora", "ministro", "ministra", 
@@ -479,7 +545,7 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
 
 def verificar_pep_completo(nome_input, cpf_input):
     """
-    Mecanismo Unificado que diferencia PEP DIRETO de PEP INDIRETO (Parentesco / Cônjuge / Vínculo 1º Grau).
+    Mecanismo Unificado que diferencia PEP DIRETO de PEP INDIRETO.
     """
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
@@ -501,7 +567,7 @@ def verificar_pep_completo(nome_input, cpf_input):
             "origem": f"Base Oficial de PEPs ({match_planilha['detalhe']})"
         }
 
-    # 2. Checagem Direta do Nome na Web (Cargos Públicos ou Partidários)
+    # 2. Checagem Direta do Nome na Web
     texto_web_direto = buscar_web_robusta(nome_limpo)
     tipo_web, cargo_web = analisar_proximidade_cargo(texto_web_direto, nome_limpo)
     
@@ -514,7 +580,7 @@ def verificar_pep_completo(nome_input, cpf_input):
             "origem": "Pesquisa em Portais Públicos e Notícias Web"
         }
 
-    # 3. Checagem por Vínculo de Parentesco (PEP INDIRETO: Junior, Filho, Neto, Sobrinho, Cônjuge)
+    # 3. Checagem por Vínculo de Parentesco (PEP INDIRETO: Junior, Filho, Neto, Sobrinho, Jr)
     sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
     palavras = nome_norm.split()
     
@@ -526,7 +592,6 @@ def verificar_pep_completo(nome_input, cpf_input):
         palavras_orig = nome_limpo.split()
         nome_pai_orig = " ".join(palavras_orig[:-1])
 
-        # 3a. Verifica se o Pai é PEP na Planilha CGU
         match_pai_planilha = buscar_na_planilha_pep(nome_pai_orig, "")
         if match_pai_planilha:
             return {
@@ -539,7 +604,6 @@ def verificar_pep_completo(nome_input, cpf_input):
                 "origem": f"Mapeamento de Parentesco e Base Oficial da CGU ({nome_pai_orig})"
             }
 
-        # 3b. Verifica se o Pai é PEP na Web/Wikipédia
         nomes_pai_testar = [nome_pai_orig]
         partes_pai = normalizar_texto(nome_pai_orig).split()
         if len(partes_pai) >= 3:
@@ -757,272 +821,278 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
         elif not cpf_valido_bool:
             st.error("❌ **CPF Inválido:** O CPF informado possui erro nos dígitos verificadores ou formato incorreto. Corrija o número para prosseguir.")
         else:
-            with st.spinner("🔎 Consultando base oficial e realizando varredura web de governança..."):
-                
-                nome_limpo = nome_input.strip()
-                res_pep = verificar_pep_completo(nome_limpo, cpf_input)
-
-                SITUACAO_CPF = "VÁLIDO"
-                tz_bsb = timezone(timedelta(hours=-3))
-                agora_dt = datetime.now(tz_bsb)
-
-                if res_pep:
-                    STATUS_PEP_BANCO = "SIM"
+            # Cross-Validation de Coerência entre Nome e CPF
+            coerente, msg_erro_coerencia = validar_coerencia_nome_cpf(nome_input, cpf_input)
+            
+            if not coerente:
+                st.error(f"❌ **Incompatibilidade de Dados Identificada:**\n\n{msg_erro_coerencia}\n\n*Por segurança regulatória, a emissão do laudo foi suspensa para evitar cadastro de CPF incorreto.*")
+            else:
+                with st.spinner("🔎 Consultando base oficial e realizando varredura web de governança..."):
                     
-                    if res_pep["tipo"] == "DIRETO":
-                        STATUS_PEP_DIRETO = "SIM"
-                        PEP_VINCULO = "NÃO CONSTA"
-                        RELACAO_2GRAU = "Sem vínculos adicionais"
-                    else: # FAMILIAR / VÍNCULO INDIRETO
+                    nome_limpo = nome_input.strip()
+                    res_pep = verificar_pep_completo(nome_limpo, cpf_input)
+
+                    SITUACAO_CPF = "VÁLIDO"
+                    tz_bsb = timezone(timedelta(hours=-3))
+                    agora_dt = datetime.now(tz_bsb)
+
+                    if res_pep:
+                        STATUS_PEP_BANCO = "SIM"
+                        
+                        if res_pep["tipo"] == "DIRETO":
+                            STATUS_PEP_DIRETO = "SIM"
+                            PEP_VINCULO = "NÃO CONSTA"
+                            RELACAO_2GRAU = "Sem vínculos adicionais"
+                        else: # FAMILIAR / VÍNCULO INDIRETO
+                            STATUS_PEP_DIRETO = "NÃO"
+                            PEP_VINCULO = "INDIRETO"
+                            RELACAO_2GRAU = "Relacionamento próximo"
+
+                        CARGOS_EXERCIDOS = res_pep["cargo"]
+                        ORGAO_ENTIDADE = res_pep["orgao"]
+                        DETALHE_EXPOSICAO = res_pep["detalhe"]
+                        ORIGEM_IDENTIFICACAO = res_pep["origem"]
+                        RISCO_FINAL = "ALTO RISCO"
+                        PRAZO_RENOVAÇÃO = "06 MESES"
+                        APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou vínculo indireto de parentesco com PEP ({ORIGEM_IDENTIFICACAO})"
+                        PERFIL_OP = "Pessoa Politicamente Exposta (PEP)"
+                        PARECER = f"Identificado enquadramento regulatório de PEP ({CARGOS_EXERCIDOS}). Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
+                        PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
+                    else:
+                        STATUS_PEP_BANCO = "NÃO"
                         STATUS_PEP_DIRETO = "NÃO"
-                        PEP_VINCULO = f"INDIRETO"
-                        RELACAO_2GRAU = "Relacionamento próximo"
+                        PEP_VINCULO = "NÃO CONSTA"
+                        RELACAO_2GRAU = "Sem vínculos mapeados"
+                        CARGOS_EXERCIDOS = "Nenhum cargo público detectado"
+                        ORGAO_ENTIDADE = "Sem vínculo identificado"
+                        DETALHE_EXPOSICAO = "Sem histórico de exposição pública registrado"
+                        ORIGEM_IDENTIFICACAO = "Pesquisa em Portais Públicos e Notícias Web"
+                        RISCO_FINAL = "BAIXO"
+                        PRAZO_RENOVAÇÃO = "01 ANO"
+                        APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta na base oficial da CGU nem nos portais de transparência"
+                        PERFIL_OP = "Profissional Independente"
+                        PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
+                        PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                    CARGOS_EXERCIDOS = res_pep["cargo"]
-                    ORGAO_ENTIDADE = res_pep["orgao"]
-                    DETALHE_EXPOSICAO = res_pep["detalhe"]
-                    ORIGEM_IDENTIFICACAO = res_pep["origem"]
-                    RISCO_FINAL = "ALTO RISCO"
-                    PRAZO_RENOVAÇÃO = "06 MESES"
-                    APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou vínculo indireto de parentesco com PEP ({ORIGEM_IDENTIFICACAO})"
-                    PERFIL_OP = "Pessoa Politicamente Exposta (PEP)"
-                    PARECER = f"Identificado enquadramento regulatório de PEP ({CARGOS_EXERCIDOS}). Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
-                    PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
-                else:
-                    STATUS_PEP_BANCO = "NÃO"
-                    STATUS_PEP_DIRETO = "NÃO"
-                    PEP_VINCULO = "NÃO CONSTA"
-                    RELACAO_2GRAU = "Sem vínculos mapeados"
-                    CARGOS_EXERCIDOS = "Nenhum cargo público detectado"
-                    ORGAO_ENTIDADE = "Sem vínculo identificado"
-                    DETALHE_EXPOSICAO = "Sem histórico de exposição pública registrado"
-                    ORIGEM_IDENTIFICACAO = "Pesquisa em Portais Públicos e Notícias Web"
-                    RISCO_FINAL = "BAIXO"
-                    PRAZO_RENOVAÇÃO = "01 ANO"
-                    APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta na base oficial da CGU nem nos portais de transparência"
-                    PERFIL_OP = "Profissional Independente"
-                    PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
-                    PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
+                    # REGISTRA NO SUPABASE
+                    registrar_vencimento(
+                        nome=nome_input,
+                        cpf_raw=cpf_input,
+                        email_operador=st.session_state.email_logado,
+                        status_pep=STATUS_PEP_BANCO,
+                        data_emissao_dt=agora_dt,
+                        data_vencimento_str=PROXIMA_ATUALIZACAO
+                    )
 
-                # REGISTRA NO SUPABASE
-                registrar_vencimento(
-                    nome=nome_input,
-                    cpf_raw=cpf_input,
-                    email_operador=st.session_state.email_logado,
-                    status_pep=STATUS_PEP_BANCO,
-                    data_emissao_dt=agora_dt,
-                    data_vencimento_str=PROXIMA_ATUALIZACAO
-                )
+                    st.markdown("---")
+                    if res_pep:
+                        st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA ({'PEP DIRETO' if res_pep['tipo']=='DIRETO' else 'PEP INDIRETO / VÍNCULO FAMILIAR'})** | Cargo: {CARGOS_EXERCIDOS} | Origem: {ORIGEM_IDENTIFICACAO}")
+                    else:
+                        st.success("🟢 **RESULTADO: NADA CONSTA (NÃO É PEP)**")
 
-                st.markdown("---")
-                if res_pep:
-                    st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA ({'PEP DIRETO' if res_pep['tipo']=='DIRETO' else 'PEP INDIRETO / VÍNCULO FAMILIAR'})** | Cargo: {CARGOS_EXERCIDOS} | Origem: {ORIGEM_IDENTIFICACAO}")
-                else:
-                    st.success("🟢 **RESULTADO: NADA CONSTA (NÃO É PEP)**")
+                    buffer = io.BytesIO()
+                    doc = SimpleDocTemplate(
+                        buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=45
+                    )
 
-                buffer = io.BytesIO()
-                doc = SimpleDocTemplate(
-                    buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=45
-                )
+                    story = []
+                    styles = getSampleStyleSheet()
 
-                story = []
-                styles = getSampleStyleSheet()
+                    style_title = ParagraphStyle('Title', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=14, alignment=TA_CENTER, textColor=colors.HexColor('#0056b3'))
+                    style_meta_val = ParagraphStyle('MetaVal', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=10, alignment=TA_CENTER, textColor=colors.HexColor('#212529'))
+                    style_sec = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white)
+                    style_lbl = ParagraphStyle('Label', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=9, textColor=colors.HexColor('#555555'))
+                    style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor('#212529'))
+                    style_badge_txt = ParagraphStyle('BadgeTxt', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.5, leading=9, alignment=TA_CENTER, textColor=colors.white)
+                    style_alert_gerencia = ParagraphStyle('AlertGerencia', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=11, alignment=TA_CENTER, textColor=colors.HexColor('#dc3545'))
+                    style_disclaimer = ParagraphStyle('Disclaimer', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#555555'))
+                    style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
 
-                style_title = ParagraphStyle('Title', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=14, alignment=TA_CENTER, textColor=colors.HexColor('#0056b3'))
-                style_meta_val = ParagraphStyle('MetaVal', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=10, alignment=TA_CENTER, textColor=colors.HexColor('#212529'))
-                style_sec = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white)
-                style_lbl = ParagraphStyle('Label', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=9, textColor=colors.HexColor('#555555'))
-                style_val = ParagraphStyle('Value', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor('#212529'))
-                style_badge_txt = ParagraphStyle('BadgeTxt', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.5, leading=9, alignment=TA_CENTER, textColor=colors.white)
-                style_alert_gerencia = ParagraphStyle('AlertGerencia', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=11, alignment=TA_CENTER, textColor=colors.HexColor('#dc3545'))
-                style_disclaimer = ParagraphStyle('Disclaimer', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_CENTER, textColor=colors.HexColor('#555555'))
-                style_date = ParagraphStyle('DateEmis', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=7, leading=9, alignment=TA_RIGHT, textColor=colors.HexColor('#444444'))
+                    def format_val(key, text):
+                        u = text.strip().upper()
+                        if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO', 'RELACAO_2GRAU', 'PEP_VINCULO']:
+                            bg_col = "#28a745"
+                            if u in ['SIM', 'INDIRETO', 'SIM - INDIRETO', 'ALTO RISCO', '06 MESES', 'RELACIONAMENTO PRÓXIMO', 'RELACIONAMENTO PROXIMO', 'SINALIZADO']:
+                                bg_col = "#dc3545"
+                            elif u in ['MÉDIO RISCO']:
+                                bg_col = "#ffc107"
 
-                def format_val(key, text):
-                    u = text.strip().upper()
-                    if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO', 'RELACAO_2GRAU', 'PEP_VINCULO']:
-                        bg_col = "#28a745"
-                        if u in ['SIM', 'INDIRETO', 'SIM - INDIRETO', 'ALTO RISCO', '06 MESES', 'RELACIONAMENTO PRÓXIMO', 'RELACIONAMENTO PROXIMO', 'SINALIZADO']:
-                            bg_col = "#dc3545"
-                        elif u in ['MÉDIO RISCO']:
-                            bg_col = "#ffc107"
+                            txt_p = Paragraph(text, style_badge_txt)
+                            calc_w = max(len(text) * 6.5, 45)
+                            t_badge = Table([[txt_p]], colWidths=[calc_w])
+                            t_badge.setStyle(TableStyle([
+                                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor(bg_col)),
+                                ('TOPPADDING', (0,0), (-1,-1), 2.5),
+                                ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+                                ('LEFTPADDING', (0,0), (-1,-1), 4),
+                                ('RIGHTPADDING', (0,0), (-1,-1), 4),
+                                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                            ]))
+                            return t_badge
+                        return Paragraph(text, style_val)
 
-                        txt_p = Paragraph(text, style_badge_txt)
-                        calc_w = max(len(text) * 6.5, 45)
-                        t_badge = Table([[txt_p]], colWidths=[calc_w])
-                        t_badge.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor(bg_col)),
-                            ('TOPPADDING', (0,0), (-1,-1), 2.5),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
-                            ('LEFTPADDING', (0,0), (-1,-1), 4),
-                            ('RIGHTPADDING', (0,0), (-1,-1), 4),
-                            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                        ]))
-                        return t_badge
-                    return Paragraph(text, style_val)
+                    def load_proportional_img(path, target_h=65):
+                        if path and os.path.exists(path):
+                            try:
+                                with PILImage.open(path) as p_img:
+                                    w, h = p_img.size
+                                    aspect = w / float(h)
+                                    new_w = target_h * aspect
+                                    return Image(path, width=new_w, height=target_h)
+                            except Exception:
+                                pass
+                        return None
 
-                def load_proportional_img(path, target_h=65):
-                    if path and os.path.exists(path):
-                        try:
-                            with PILImage.open(path) as p_img:
-                                w, h = p_img.size
-                                aspect = w / float(h)
-                                new_w = target_h * aspect
-                                return Image(path, width=new_w, height=target_h)
-                        except Exception:
-                            pass
-                    return None
+                    path_l1 = "logo_bks.png" if os.path.exists("logo_bks.png") else None
+                    path_l2 = "logo_bksre.png" if os.path.exists("logo_bksre.png") else None
 
-                path_l1 = "logo_bks.png" if os.path.exists("logo_bks.png") else None
-                path_l2 = "logo_bksre.png" if os.path.exists("logo_bksre.png") else None
+                    img1 = load_proportional_img(path_l1, 65) or Paragraph("<b>BKS CORRETORA</b>", style_title)
+                    img2 = load_proportional_img(path_l2, 65) or Paragraph("<b>BKS RE RESSEGUROS</b>", style_title)
 
-                img1 = load_proportional_img(path_l1, 65) or Paragraph("<b>BKS CORRETORA</b>", style_title)
-                img2 = load_proportional_img(path_l2, 65) or Paragraph("<b>BKS RE RESSEGUROS</b>", style_title)
+                    t_header = Table([[img1, "", img2]], colWidths=[230, 62, 230])
+                    t_header.setStyle(TableStyle([
+                        ('ALIGN', (0,0), (0,0), 'LEFT'),
+                        ('ALIGN', (2,0), (2,0), 'RIGHT'),
+                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ]))
+                    story.append(t_header)
+                    story.append(Spacer(1, 16))
 
-                t_header = Table([[img1, "", img2]], colWidths=[230, 62, 230])
-                t_header.setStyle(TableStyle([
-                    ('ALIGN', (0,0), (0,0), 'LEFT'),
-                    ('ALIGN', (2,0), (2,0), 'RIGHT'),
-                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ]))
-                story.append(t_header)
-                story.append(Spacer(1, 16))
+                    story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
+                    story.append(Spacer(1, 10))
 
-                story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
-                story.append(Spacer(1, 10))
-
-                emissor_nome = f"Operador: {st.session_state.email_logado}"
-                meta_table_data = [
-                    [Paragraph(f"Emissor: {emissor_nome}", style_meta_val)],
-                    [Paragraph("Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL", style_meta_val)]
-                ]
-                
-                t_meta = Table(meta_table_data, colWidths=[522])
-                t_meta.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8f9fa')),
-                    ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
-                    ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e1e4e8')),
-                    ('TOPPADDING', (0,0), (-1,-1), 4),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-                ]))
-                story.append(t_meta)
-                story.append(Spacer(1, 16))
-
-                def make_sec(title, fields, full_banner_alert=None):
-                    t_sec_title = Table([[Paragraph(title, style_sec)]], colWidths=[522])
-                    t_sec_title.setStyle(TableStyle([
-                        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#0056b3')),
+                    emissor_nome = f"Operador: {st.session_state.email_logado}"
+                    meta_table_data = [
+                        [Paragraph(f"Emissor: {emissor_nome}", style_meta_val)],
+                        [Paragraph("Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL", style_meta_val)]
+                    ]
+                    
+                    t_meta = Table(meta_table_data, colWidths=[522])
+                    t_meta.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8f9fa')),
+                        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
+                        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e1e4e8')),
                         ('TOPPADDING', (0,0), (-1,-1), 4),
                         ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-                        ('LEFTPADDING', (0,0), (-1,-1), 8),
                     ]))
-                    story.append(t_sec_title)
+                    story.append(t_meta)
+                    story.append(Spacer(1, 16))
 
-                    table_data = []
-                    for i in range(0, len(fields), 2):
-                        f1 = fields[i]
-                        f2 = fields[i+1] if i+1 < len(fields) else None
-                        
-                        c1 = [Paragraph(f1[0], style_lbl), format_val(f1[2] if len(f1)>2 else '', f1[1])]
-                        c2 = [Paragraph(f2[0], style_lbl), format_val(f2[2] if len(f2)>2 else '', f2[1])] if f2 else ["", ""]
-                        
-                        table_data.append([c1, c2])
-
-                    t_content = Table(table_data, colWidths=[261, 261])
-                    t_content.setStyle(TableStyle([
-                        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f4f6f8')),
-                        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
-                        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d0d7de')),
-                        ('TOPPADDING', (0,0), (-1,-1), 5),
-                        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-                        ('LEFTPADDING', (0,0), (-1,-1), 8),
-                        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-                        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                    ]))
-                    story.append(t_content)
-
-                    if full_banner_alert:
-                        p_alert = Paragraph(full_banner_alert, style_alert_gerencia)
-                        t_alert = Table([[p_alert]], colWidths=[522])
-                        t_alert.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,-1), colors.white),
-                            ('BOX', (0,0), (-1,-1), 1.2, colors.HexColor('#dc3545')),
-                            ('TOPPADDING', (0,0), (-1,-1), 6),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-                            ('LEFTPADDING', (0,0), (-1,-1), 10),
-                            ('RIGHTPADDING', (0,0), (-1,-1), 10),
-                            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    def make_sec(title, fields, full_banner_alert=None):
+                        t_sec_title = Table([[Paragraph(title, style_sec)]], colWidths=[522])
+                        t_sec_title.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#0056b3')),
+                            ('TOPPADDING', (0,0), (-1,-1), 4),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                            ('LEFTPADDING', (0,0), (-1,-1), 8),
                         ]))
-                        story.append(t_alert)
+                        story.append(t_sec_title)
 
-                    story.append(Spacer(1, 8))
+                        table_data = []
+                        for i in range(0, len(fields), 2):
+                            f1 = fields[i]
+                            f2 = fields[i+1] if i+1 < len(fields) else None
+                            
+                            c1 = [Paragraph(f1[0], style_lbl), format_val(f1[2] if len(f1)>2 else '', f1[1])]
+                            c2 = [Paragraph(f2[0], style_lbl), format_val(f2[2] if len(f2)>2 else '', f2[1])] if f2 else ["", ""]
+                            
+                            table_data.append([c1, c2])
 
-                make_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
-                    ("NOME COMPLETO", nome_input.upper()),
-                    ("CPF", cpf_formatado_input),
-                    ("PERFIL E NATUREZA", "Pessoa Física"),
-                    ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
-                ])
+                        t_content = Table(table_data, colWidths=[261, 261])
+                        t_content.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f4f6f8')),
+                            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#d0d7de')),
+                            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d0d7de')),
+                            ('TOPPADDING', (0,0), (-1,-1), 5),
+                            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+                            ('LEFTPADDING', (0,0), (-1,-1), 8),
+                            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+                            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                        ]))
+                        story.append(t_content)
 
-                make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
-                    ("STATUS PEP DIRETO", STATUS_PEP_DIRETO, "STATUS_PEP"),
-                    ("STATUS POR VÍNCULO", PEP_VINCULO, "PEP_VINCULO"),
-                    ("ÓRGÃO / ENTIDADE DE ATUAÇÃO", ORGAO_ENTIDADE),
-                    ("ENQUADRAMENTO DO CARGO", DETALHE_EXPOSICAO)
-                ])
+                        if full_banner_alert:
+                            p_alert = Paragraph(full_banner_alert, style_alert_gerencia)
+                            t_alert = Table([[p_alert]], colWidths=[522])
+                            t_alert.setStyle(TableStyle([
+                                ('BACKGROUND', (0,0), (-1,-1), colors.white),
+                                ('BOX', (0,0), (-1,-1), 1.2, colors.HexColor('#dc3545')),
+                                ('TOPPADDING', (0,0), (-1,-1), 6),
+                                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                                ('LEFTPADDING', (0,0), (-1,-1), 10),
+                                ('RIGHTPADDING', (0,0), (-1,-1), 10),
+                                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                            ]))
+                            story.append(t_alert)
 
-                make_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
-                    ("RELAÇÃO 2º GRAU PEP", RELACAO_2GRAU, "RELACAO_2GRAU"),
-                    ("SOCIEDADES E PARTICIPAÇÕES", "Sem restrições ativas")
-                ])
+                        story.append(Spacer(1, 8))
 
-                make_sec("4. PERFIL EMPRESARIAL E SETOR DE ATUAÇÃO (RISCO OPERACIONAL)", [
-                    ("PERFIL OPERACIONAL", PERFIL_OP),
-                    ("REGIÃO DE ATUAÇÃO", "Brasil"),
-                    ("SITUAÇÃO CADASTRAL CPF", SITUACAO_CPF),
-                    ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
-                ])
+                    make_sec("1. DADOS QUALIFICATIVOS DO PESQUISADO", [
+                        ("NOME COMPLETO", nome_input.upper()),
+                        ("CPF", cpf_formatado_input),
+                        ("PERFIL E NATUREZA", "Pessoa Física"),
+                        ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
+                    ])
 
-                alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com as tratativas de seguro." if res_pep else None
+                    make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
+                        ("STATUS PEP DIRETO", STATUS_PEP_DIRETO, "STATUS_PEP"),
+                        ("STATUS POR VÍNCULO", PEP_VINCULO, "PEP_VINCULO"),
+                        ("ÓRGÃO / ENTIDADE DE ATUAÇÃO", ORGAO_ENTIDADE),
+                        ("ENQUADRAMENTO DO CARGO", DETALHE_EXPOSICAO)
+                    ])
 
-                make_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
-                    ("NÍVEL DE RISCO FINAL", RISCO_FINAL, "RISCO_FINAL"),
-                    ("PARECER DE CONFORMIDADE", PARECER)
-                ], full_banner_alert=alerta_gerencia)
+                    make_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
+                        ("RELAÇÃO 2º GRAU PEP", RELACAO_2GRAU, "RELACAO_2GRAU"),
+                        ("SOCIEDADES E PARTICIPAÇÕES", "Sem restrições ativas")
+                    ])
 
-                make_sec("6. RENOVAÇÃO DE RELATÓRIO", [
-                    ("PRAZO EXIGIDO PARA REVISÃO", PRAZO_RENOVAÇÃO, "PRAZO_RENOVAÇÃO"),
-                    ("PRÓXIMA ATUALIZACAO RECOMENDADA", PROXIMA_ATUALIZACAO)
-                ])
+                    make_sec("4. PERFIL EMPRESARIAL E SETOR DE ATUAÇÃO (RISCO OPERACIONAL)", [
+                        ("PERFIL OPERACIONAL", PERFIL_OP),
+                        ("REGIÃO DE ATUAÇÃO", "Brasil"),
+                        ("SITUAÇÃO CADASTRAL CPF", SITUACAO_CPF),
+                        ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
+                    ])
 
-                story.append(Spacer(1, 16))
-                disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
-                story.append(Paragraph(disclaimer_txt, style_disclaimer))
-                story.append(Spacer(1, 10))
-                
-                hora_agora_bsb = agora_dt.strftime('%d/%m/%Y às %H:%M:%S')
-                story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
+                    alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com as tratativas de seguro." if res_pep else None
 
-                def add_footer(canvas, doc):
-                    canvas.saveState()
-                    ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
-                    canvas.setFont("Helvetica", 7)
-                    canvas.setFillColor(colors.HexColor('#777777'))
-                    canvas.drawCentredString(A4[0] / 2.0, 20, ft_text)
-                    canvas.restoreState()
+                    make_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
+                        ("NÍVEL DE RISCO FINAL", RISCO_FINAL, "RISCO_FINAL"),
+                        ("PARECER DE CONFORMIDADE", PARECER)
+                    ], full_banner_alert=alerta_gerencia)
 
-                doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
-                pdf_bytes = buffer.getvalue()
+                    make_sec("6. RENOVAÇÃO DE RELATÓRIO", [
+                        ("PRAZO EXIGIDO PARA REVISÃO", PRAZO_RENOVAÇÃO, "PRAZO_RENOVAÇÃO"),
+                        ("PRÓXIMA ATUALIZACAO RECOMENDADA", PROXIMA_ATUALIZACAO)
+                    ])
 
-                st.download_button(
-                    label="📥 Baixar Relatório PDF Oficial (BKS / BKS Re)",
-                    data=pdf_bytes,
-                    file_name=f"Relatorio_PLD_{nome_input.replace(' ', '_').upper()}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+                    story.append(Spacer(1, 16))
+                    disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
+                    story.append(Paragraph(disclaimer_txt, style_disclaimer))
+                    story.append(Spacer(1, 10))
+                    
+                    hora_agora_bsb = agora_dt.strftime('%d/%m/%Y às %H:%M:%S')
+                    story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
+
+                    def add_footer(canvas, doc):
+                        canvas.saveState()
+                        ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
+                        canvas.setFont("Helvetica", 7)
+                        canvas.setFillColor(colors.HexColor('#777777'))
+                        canvas.drawCentredString(A4[0] / 2.0, 20, ft_text)
+                        canvas.restoreState()
+
+                    doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
+                    pdf_bytes = buffer.getvalue()
+
+                    st.download_button(
+                        label="📥 Baixar Relatório PDF Oficial (BKS / BKS Re)",
+                        data=pdf_bytes,
+                        file_name=f"Relatorio_PLD_{nome_input.replace(' ', '_').upper()}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
 
 # =============================================================================
 # 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS
