@@ -275,7 +275,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + PARENTESCO / TRONCO FAMILIAR)
+# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + BUSCA FLEXÍVEL)
 # -----------------------------------------------------------------------------
 def identificar_arquivo_pep():
     """Localiza o arquivo da planilha de PEPs no diretório local."""
@@ -347,49 +347,56 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
 def buscar_web_robusta(nome):
     """
-    Compila trechos reais de notícias e do Wikipédia.
+    Busca flexível e tolerante a acentos na Wikipédia e buscadores públicos.
     """
     texto_compilado = ""
+    nome_limpo = nome.strip()
+    nome_norm = normalizar_texto(nome_limpo)
+    partes = nome_norm.split()
     
-    # 1. API da Wikipédia
-    try:
-        url_wiki = "https://pt.wikipedia.org/w/api.php"
-        params_search = {
-            "action": "query",
-            "list": "search",
-            "srsearch": f'"{nome}"',
-            "format": "json"
-        }
-        res = requests.get(url_wiki, params=params_search, timeout=5).json()
-        search_hits = res.get("query", {}).get("search", [])
-        
-        for hit in search_hits[:3]:
-            snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
-            texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
-            
-        if search_hits:
-            primeiro_titulo = search_hits[0].get("title")
-            params_ext = {
-                "action": "query",
-                "format": "json",
-                "prop": "extracts",
-                "exintro": True,
-                "explaintext": True,
-                "titles": primeiro_titulo
-            }
-            res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
-            pages = res_ext.get("query", {}).get("pages", {})
-            for p_id, p_data in pages.items():
-                if p_id != "-1":
-                    texto_compilado += f" {p_data.get('extract', '')}"
-    except Exception:
-        pass
+    variantes = [nome_limpo]
+    if len(partes) >= 3:
+        variantes.append(f"{partes[0]} {partes[-1]}")
+        variantes.append(f"{partes[0]} {partes[-2]} {partes[-1]}")
 
-    # 2. DuckDuckGo HTML
+    for var in variantes:
+        try:
+            url_wiki = "https://pt.wikipedia.org/w/api.php"
+            params_search = {
+                "action": "query",
+                "list": "search",
+                "srsearch": var,
+                "format": "json"
+            }
+            res = requests.get(url_wiki, params=params_search, timeout=5).json()
+            search_hits = res.get("query", {}).get("search", [])
+            
+            for hit in search_hits[:4]:
+                snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
+                texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
+                
+            if search_hits:
+                primeiro_titulo = search_hits[0].get("title")
+                params_ext = {
+                    "action": "query",
+                    "format": "json",
+                    "prop": "extracts",
+                    "exintro": True,
+                    "explaintext": True,
+                    "titles": primeiro_titulo
+                }
+                res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
+                pages = res_ext.get("query", {}).get("pages", {})
+                for p_id, p_data in pages.items():
+                    if p_id != "-1":
+                        texto_compilado += f" {p_data.get('extract', '')}"
+        except Exception:
+            pass
+
     try:
         url_ddg = "https://html.duckduckgo.com/html/"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        data = {"q": f'"{nome}" politico OR prefeito OR senador OR vice OR deputado'}
+        data = {"q": f'{nome_limpo} politico vice prefeito senador'}
         resp = requests.post(url_ddg, data=data, headers=headers, timeout=5)
         if resp.status_code == 200:
             snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
@@ -399,10 +406,9 @@ def buscar_web_robusta(nome):
     except Exception:
         pass
 
-    # 3. Biblioteca DDGS
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(f'"{nome}" politico OR vice prefeito OR senador', max_results=4))
+            results = list(ddgs.text(f'{nome_limpo} politico vice prefeito senador', max_results=4))
             for r in results:
                 texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
     except Exception:
@@ -412,7 +418,7 @@ def buscar_web_robusta(nome):
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     """
-    Analisa a presença de cargos públicos ao redor do nome informado.
+    Analisa a presença de cargos públicos ao redor do nome ou de variações de nome de família.
     """
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
@@ -429,22 +435,28 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
         "ex prefeito", "politico", "politica", "suplente", "candidato", "vice"
     ]
 
-    indices = [m.start() for m in re.finditer(re.escape(nome_norm), texto_norm)]
+    partes = nome_norm.split()
+    variantes_nome = [nome_norm]
+    if len(partes) >= 3:
+        variantes_nome.append(f"{partes[0]} {partes[-1]}")
+        variantes_nome.append(f"{partes[0]} {partes[-2]} {partes[-1]}")
 
-    for idx in indices:
-        inicio_janela = max(0, idx - 250)
-        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 250)
-        trecho = texto_norm[inicio_janela:fim_janela]
+    for var in variantes_nome:
+        indices = [m.start() for m in re.finditer(re.escape(var), texto_norm)]
+        for idx in indices:
+            inicio_janela = max(0, idx - 350)
+            fim_janela = min(len(texto_norm), idx + len(var) + 350)
+            trecho = texto_norm[inicio_janela:fim_janela]
 
-        for cargo in cargos_pep:
-            if cargo in trecho:
-                return "DIRETO", cargo.title()
+            for cargo in cargos_pep:
+                if cargo in trecho:
+                    return "DIRETO", cargo.title()
 
     return None, None
 
 def verificar_pep_completo(nome_input, cpf_input):
     """
-    Mecanismo Unificado que diferencia PEP DIRETO de PEP POR VÍNCULO FAMILIAR (Filho/Junior/Esposa/etc.).
+    Mecanismo Unificado que diferencia PEP DIRETO de PEP POR VÍNCULO FAMILIAR.
     """
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
@@ -482,37 +494,37 @@ def verificar_pep_completo(nome_input, cpf_input):
         if sufixo_encontrado == "JR":
             sufixo_encontrado = "JUNIOR"
             
-        nome_pai_title = " ".join([p.capitalize() for p in palavras[:-1]])
+        palavras_orig = nome_limpo.split()
+        nome_pai_orig = " ".join(palavras_orig[:-1])
 
         # 3a. Verifica se o Pai é PEP na Planilha CGU
-        match_pai_planilha = buscar_na_planilha_pep(nome_pai_title, "")
+        match_pai_planilha = buscar_na_planilha_pep(nome_pai_orig, "")
         if match_pai_planilha:
             return {
                 "tipo": "FAMILIAR",
                 "sufixo": sufixo_encontrado,
-                "nome_parente": nome_pai_title,
+                "nome_parente": nome_pai_orig,
                 "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {match_pai_planilha['cargo']})",
                 "orgao": match_pai_planilha["orgao"],
-                "detalhe": f"Vínculo Direto com PEP Mapeado na Base Oficial da CGU ({nome_pai_title})",
-                "origem": f"Mapeamento de Parentesco e Base Oficial da CGU ({nome_pai_title})"
+                "detalhe": f"Vínculo Direto com PEP Mapeado na Base Oficial da CGU ({nome_pai_orig})",
+                "origem": f"Mapeamento de Parentesco e Base Oficial da CGU ({nome_pai_orig})"
             }
 
         # 3b. Verifica se o Pai é PEP na Web/Wikipédia
-        texto_web_pai = buscar_web_robusta(nome_pai_title)
-        _, cargo_pai_web = analisar_proximidade_cargo(texto_web_pai, nome_pai_title)
+        texto_web_pai = buscar_web_robusta(nome_pai_orig)
+        _, cargo_pai_web = analisar_proximidade_cargo(texto_web_pai, nome_pai_orig)
 
         if cargo_pai_web:
             return {
                 "tipo": "FAMILIAR",
                 "sufixo": sufixo_encontrado,
-                "nome_parente": nome_pai_title,
+                "nome_parente": nome_pai_orig,
                 "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {cargo_pai_web})",
                 "orgao": "Administração Pública / Registro Histórico",
-                "detalhe": f"Vínculo Direto de Parentesco com Agente Político Mapeado na Web ({nome_pai_title})",
-                "origem": f"Mapeamento de Vínculos Familiares em Fontes Públicas ({nome_pai_title})"
+                "detalhe": f"Vínculo Direto de Parentesco com Agente Político Mapeado na Web ({nome_pai_orig})",
+                "origem": f"Mapeamento de Vínculos Familiares em Fontes Públicas ({nome_pai_orig})"
             }
 
-    # Se não for Direto nem Familiar
     return None
 
 # -----------------------------------------------------------------------------
