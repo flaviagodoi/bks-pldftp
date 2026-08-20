@@ -293,7 +293,7 @@ def identificar_arquivo_pep():
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
     """
-    Busca estrita na planilha da CGU utilizando NOME COMPLETO EXATO e miolo do CPF.
+    Busca estrita na planilha da CGU (1ª Camada) utilizando NOME COMPLETO EXATO e miolo do CPF.
     """
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
@@ -368,7 +368,7 @@ def buscar_wikipedia(nome):
     return ""
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
-    """Analisa vinculação do Nome Completo Exato a cargo público ou relação política no raio de 250 caracteres."""
+    """Analisa vinculação do Nome Completo Exato a cargo público no raio de 250 caracteres."""
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
 
@@ -380,7 +380,7 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
         "prefeito", "prefeita", "vice prefeito", "vice governadora", "ministro", "ministra", "desembargador", "desembargadora", 
         "juiz", "juiza", "juiz federal", "procurador", "procuradora", "secretario", 
         "secretaria", "vereador", "vereadora", "magistrado", "magistrada", "parlamentar", 
-        "ex ministro", "ex senador", "ex deputado", "ex governador", "ex prefeito", "politico", "politica", "suplente", "socio", "filho", "parente"
+        "ex ministro", "ex senador", "ex deputado", "ex governador", "ex prefeito", "politico", "politica", "suplente", "candidato", "socio", "filho", "parente"
     ]
 
     indices = [m.start() for m in re.finditer(re.escape(nome_norm), texto_norm)]
@@ -594,6 +594,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                 
                 nome_limpo = nome_input.strip()
                 
+                # 1. PRIMEIRA OPÇÃO: BUSCA NA PLANILHA LOCAL DA CGU
                 match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
                 
                 if match_planilha:
@@ -603,8 +604,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     orgao_detectado = match_planilha["orgao"]
                     detalhe_cargo = "Cadastro Ativo na Base Oficial do Governo Federal (CGU)"
                 else:
-                    origem_identificacao = "Pesquisa em Portais Públicos e Notícias Web"
-                    
+                    # 2. SEGUNDA OPÇÃO: BUSCA WIKIPÉDIA + VARREDURA WEB (HISTÓRICO E NOTÓRIA EXPOSIÇÃO)
                     wiki_text = buscar_wikipedia(nome_limpo)
                     cargo_wiki = analisar_proximidade_cargo(wiki_text, nome_limpo)
 
@@ -612,17 +612,17 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         detec_pep = True
                         cargo_detectado = f"Agente Político / Notória Exposição ({cargo_wiki})"
                         orgao_detectado = "Administração Pública / Registro Histórico (Wikipédia)"
-                        detalhe_cargo = "Histórico Mapeado na Wikipédia Brasil"
+                        detalhe_cargo = "Histórico Mapeado em Fontes Públicas (Wikipédia)"
                     else:
                         res_web = ""
                         queries_estritas = [
-                            f'"{nome_limpo}" politico OR senador OR prefeito OR vice OR deputado OR vereador',
-                            f'"{nome_limpo}" cargo OR funcao OR publico OR governo'
+                            f'"{nome_limpo}" vice prefeito OR senador OR candidato OR politico OR deputado OR prefeito',
+                            f'"{nome_limpo}" cargo publico OR mandato OR governo'
                         ]
                         try:
                             with DDGS() as ddgs:
                                 for q in queries_estritas:
-                                    results = list(ddgs.text(q, max_results=3))
+                                    results = list(ddgs.text(q, max_results=4))
                                     for r in results:
                                         res_web += f"{r.get('title', '')} {r.get('body', '')}\n"
                         except Exception:
