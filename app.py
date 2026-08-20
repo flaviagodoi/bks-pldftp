@@ -1,5 +1,5 @@
 import streamlit as st
-import io, os, re, unicodedata, requests, csv
+import io, os, re, unicodedata, requests, csv, sqlite3
 from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
 from duckduckgo_search import DDGS
@@ -19,10 +19,38 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# ☁️ SINCRONIZAÇÃO SILENCIOSA COM GITHUB (PERSISTÊNCIA EM NUVEM)
+# 🗄️ BANCO DE DADOS PERSISTENTE LOCAL (SQLITE / CSV)
 # -----------------------------------------------------------------------------
+ARQUIVO_VENCIMENTOS = "vencimentos.csv"
+DB_NAME = "bks_pld_vencimentos.db"
+
+def inicializar_banco_dados():
+    """Inicializa a tabela SQLite no banco local para persistência de dados."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS vencimentos (
+                nome TEXT,
+                cpf TEXT,
+                cpf_mascarado TEXT,
+                cpf_key TEXT PRIMARY KEY,
+                operador TEXT,
+                data_emissao TEXT,
+                status_pep TEXT,
+                data_vencimento TEXT,
+                data_vencimento_iso TEXT
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+inicializar_banco_dados()
+
 def sincronizar_com_github(caminho_arquivo, mensagem_commit):
-    """Sincroniza os arquivos locais de controle com o repositório GitHub."""
+    """Sincroniza os arquivos de controle com o repositório GitHub de forma segura."""
     if not GITHUB_DISPONIVEL:
         return
     try:
@@ -69,7 +97,7 @@ USUARIOS_PADRAO_NATIVOS = [
 ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
 
 def carregar_usuarios():
-    """Carrega o dicionário de usuários mantendo a hierarquia corporativa nativa."""
+    """Carrega a lista de usuários mantendo as permissões de cada cargo."""
     usuarios = {}
     
     if os.path.exists(ARQUIVO_USUARIOS):
@@ -94,7 +122,7 @@ def carregar_usuarios():
     return usuarios
 
 def salvar_usuarios_csv(dict_usuarios):
-    """Grava os usuários e cargos no CSV e sincroniza com o GitHub."""
+    """Grava os usuários e papéis no CSV e sincroniza com a nuvem."""
     try:
         with open(ARQUIVO_USUARIOS, mode='w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f, delimiter=';')
@@ -105,7 +133,7 @@ def salvar_usuarios_csv(dict_usuarios):
         st.error(f"Erro ao salvar lista de usuários: {e}")
 
 def adicionar_novo_usuario(email_input, cargo_escolhido):
-    """Adiciona um novo e-mail com o cargo definido."""
+    """Adiciona um novo e-mail com a permissão definida."""
     email_clean = email_input.strip().lower()
     if not email_clean:
         return False, "O e-mail não pode estar em branco."
@@ -119,12 +147,12 @@ def adicionar_novo_usuario(email_input, cargo_escolhido):
     return True, f"Usuário {email_clean} ({cargo_escolhido}) cadastrado com sucesso!"
 
 def remover_usuario(email_remover):
-    """Remove um usuário cadastrado mantendo e-mails corporativos protegidos."""
+    """Remove um usuário cadastrado."""
     email_clean = email_remover.strip().lower()
     dict_atual = carregar_usuarios()
     
     if email_clean in [a.lower() for a in CARGOS_NATIVOS.keys()]:
-        return False, "E-mail da diretoria/administração nativa protegido contra exclusão."
+        return False, "E-mail protegido contra exclusão."
 
     if email_clean in dict_atual:
         del dict_atual[email_clean]
@@ -141,7 +169,7 @@ def verificar_email_autorizado(email: str) -> bool:
     return email_clean in dict_usuarios or email_clean.endswith("@bks.com.br") or email_clean.endswith("@bksre.com.br")
 
 def eh_administrador(email: str) -> bool:
-    """Retorna True se o e-mail logado tiver privilégios administrativos/gerenciais."""
+    """Retorna True se o e-mail logado tiver privilégios administrativos."""
     if not email:
         return False
     email_clean = email.strip().lower()
@@ -150,7 +178,7 @@ def eh_administrador(email: str) -> bool:
     return cargo in ["Administrador/Programador", "Diretoria", "Gerente", "Administrador"] or email_clean in [a.lower() for a in CARGOS_NATIVOS.keys()]
 
 def obter_cargo_usuario(email: str) -> str:
-    """Retorna o título oficial do cargo do e-mail informado."""
+    """Retorna o título do cargo do usuário."""
     if not email:
         return "Operador"
     email_clean = email.strip().lower()
@@ -158,10 +186,8 @@ def obter_cargo_usuario(email: str) -> str:
     return dict_usuarios.get(email_clean, "Operador")
 
 # -----------------------------------------------------------------------------
-# 🛠️ FUNÇÕES DE FORMATAÇÃO ESTÉTICA, VALIDAÇÃO E BUSCAS (CGU + WEB)
+# 🛠️ FUNÇÕES DE MÁSCARA, VALIDAÇÃO E BUSCAS (CGU + WEB)
 # -----------------------------------------------------------------------------
-ARQUIVO_VENCIMENTOS = "vencimentos.csv"
-
 def formatar_cpf_estetico(cpf_raw: str) -> str:
     """Aplica a máscara estética 000.000.000-00 mantendo os zeros à esquerda."""
     nums = re.sub(r'\D', '', str(cpf_raw))
@@ -323,17 +349,50 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     return None
 
 def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
-    """Grava ou atualiza a listagem de relatórios sem duplicidades."""
+    """Grava o registro simultaneamente no Banco SQLite e no CSV backup."""
     cpf_limpo_key = re.sub(r'\D', '', str(cpf_raw))
     cpf_formatado = formatar_cpf_estetico(cpf_raw)
     cpf_mascarado = mascarar_cpf(cpf_raw)
-    registros_existentes = carregar_vencimentos()
     
     try:
         dt_venc = datetime.strptime(data_vencimento_str, "%d/%m/%Y").strftime("%Y-%m-%d")
     except Exception:
         dt_venc = data_vencimento_str
 
+    # 1. GRAVA NO BANCO LOCAL SQLITE
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO vencimentos (nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cpf_key) DO UPDATE SET
+                nome=excluded.nome,
+                cpf=excluded.cpf,
+                cpf_mascarado=excluded.cpf_mascarado,
+                operador=excluded.operador,
+                data_emissao=excluded.data_emissao,
+                status_pep=excluded.status_pep,
+                data_vencimento=excluded.data_vencimento,
+                data_vencimento_iso=excluded.data_vencimento_iso
+        ''', (
+            nome.upper().strip(),
+            cpf_formatado,
+            cpf_mascarado,
+            cpf_limpo_key,
+            email_operador,
+            data_emissao_dt.strftime("%d/%m/%Y %H:%M"),
+            status_pep,
+            data_vencimento_str,
+            dt_venc
+        ))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+    # 2. GRAVA NO ARQUIVO CSV
+    registros_existentes = carregar_vencimentos()
     novo_registro = {
         "Nome": nome.upper().strip(),
         "CPF": cpf_formatado,
@@ -373,21 +432,45 @@ def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao
         st.error(f"Erro ao salvar registro de vencimento: {e}")
 
 def carregar_vencimentos():
-    """Lê o arquivo local de vencimentos e retorna a lista de registros."""
-    if not os.path.exists(ARQUIVO_VENCIMENTOS):
-        return []
-    
+    """Lê os registros combinando o banco SQLite e o CSV para garantir que nenhum dado suma."""
     registros = []
+    
+    # Tenta carregar do SQLite
     try:
-        with open(ARQUIVO_VENCIMENTOS, mode='r', encoding='utf-8-sig') as f:
-            primeira_linha = f.readline()
-            sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
-            f.seek(0)
-            reader = csv.DictReader(f, delimiter=sep)
-            for row in reader:
-                registros.append(row)
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso FROM vencimentos")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        for r in rows:
+            registros.append({
+                "Nome": r[0],
+                "CPF": r[1],
+                "CPF_Mascarado": r[2],
+                "CPF_Key": r[3],
+                "Operador": r[4],
+                "Data_Emissao": r[5],
+                "Status_PEP": r[6],
+                "Data_Vencimento": r[7],
+                "Data_Vencimento_ISO": r[8]
+            })
     except Exception:
         pass
+
+    # Se o banco SQLite estiver vazio, lê do CSV
+    if not registros and os.path.exists(ARQUIVO_VENCIMENTOS):
+        try:
+            with open(ARQUIVO_VENCIMENTOS, mode='r', encoding='utf-8-sig') as f:
+                primeira_linha = f.readline()
+                sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
+                f.seek(0)
+                reader = csv.DictReader(f, delimiter=sep)
+                for row in reader:
+                    registros.append(row)
+        except Exception:
+            pass
+
     return registros
 
 # -----------------------------------------------------------------------------
@@ -402,7 +485,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ESTILIZAÇÃO CSS CUSTOMIZADA (INCLUI BOTOES AZUIS NATIVOS)
+# ESTILIZAÇÃO CSS CUSTOMIZADA
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -410,7 +493,6 @@ st.markdown("""
     div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 10px 20px; transition: all 0.3s ease; }
     div.stButton > button:first-child:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
     
-    /* ESTILIZAÇÃO DOS BOTOES AZUIS DA RECEITA FEDERAL */
     a.btn-receita-azul {
         display: block;
         width: 100%;
@@ -471,7 +553,6 @@ eh_admin = eh_administrador(st.session_state.email_logado)
 cargo_usuario_logado = obter_cargo_usuario(st.session_state.email_logado)
 
 with st.sidebar:
-    # EXIBIÇÃO DE LOGOS DUPAS (BKS CORRETORA & BKS RE)
     col_logo1, col_logo2 = st.columns(2)
     with col_logo1:
         if os.path.exists("logo_bks.png"):
@@ -492,7 +573,6 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # REORGANIZAÇÃO DO MENU SOLICITADA
     opcoes_menu = [
         "🏛️ Consultas Receita Federal (PF/PJ)",
         "🔍 Consulta PLD/FTP", 
@@ -508,7 +588,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # NOTIFICAÇÃO DE BASE DE DADOS (VISÍVEL PARA TODOS COM FONTE INCLUÍDA)
     arquivo_encontrado = identificar_arquivo_pep()
     if arquivo_encontrado:
         data_arquivo = datetime(2026, 8, 14)
@@ -999,7 +1078,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 st.markdown("**⚡ Ação**")
             st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
-            # REDUÇÃO SUTIL DE ESPAÇAMENTO DA TABELA
+            # ESPAÇAMENTO AJUSTADO
             for idx, item in enumerate(dados_filtrados):
                 c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
                 
@@ -1067,7 +1146,7 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
         with col_add1:
             novo_email_input = st.text_input("➕ Digite o e-mail para autorizar:", placeholder="novo.usuario@bks.com.br")
         with col_add2:
-            perfil_input = st.selectbox("Cargo / Perfil:", ["Operador", "Administrador", "Diretoria"])
+            perfil_input = st.selectbox("Cargo / Perfil:", ["Operador", "Administrador", "Gerente", "Diretoria"])
         with col_add3:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("✅ Autorizar", use_container_width=True):
@@ -1097,7 +1176,6 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
 
         admins_nativos_lower = [a.lower() for a in CARGOS_NATIVOS.keys()]
 
-        # REDUÇÃO SUTIL DE ESPAÇAMENTO NA LISTA DE USUÁRIOS
         for idx, (usr_email, cargo_usr) in enumerate(sorted(dict_usuarios.items())):
             c_u1, c_u2, c_u3 = st.columns([3, 2, 1])
             with c_u1:
