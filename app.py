@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
 from duckduckgo_search import DDGS
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 
 # ReportLab - Gerador Vetorial Profissional de PDF
 from reportlab.lib.pagesizes import A4
@@ -16,13 +17,12 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 # 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE (POSTGRESQL)
 # -----------------------------------------------------------------------------
 def obter_conexao_banco():
-    """Retorna a engine de conexão do SQLAlchemy para o Supabase."""
+    """Retorna a engine de conexão do SQLAlchemy para o Supabase sem prender pool."""
     if "DATABASE_URL" in st.secrets:
         db_url = st.secrets["DATABASE_URL"]
-        # Ajuste de prefixo do SQLAlchemy para Postgres
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
-        return create_engine(db_url, pool_pre_ping=True)
+        return create_engine(db_url, poolclass=NullPool)
     return None
 
 def inicializar_banco_supabase():
@@ -275,7 +275,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ FUNÇÕES DE BUSCA (CGU + WIKIPÉDIA + WEB)
+# 🛠️ FUNÇÕES DE BUSCA APRIMORADAS (CGU + WIKIPÉDIA + WEB AMPLIADA)
 # -----------------------------------------------------------------------------
 def identificar_arquivo_pep():
     """Localiza o arquivo da planilha de PEPs no diretório local."""
@@ -292,7 +292,9 @@ def identificar_arquivo_pep():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """Busca de alta precisão na planilha da CGU."""
+    """
+    Busca de alta precisão na planilha da CGU com inteligência anti-sufixos (Junior/Filho/Neto).
+    """
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -300,6 +302,10 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
     nome_norm = normalizar_texto(nome_input)
     if not nome_norm or len(nome_norm.split()) < 2:
         return None
+
+    sufixos = ["junior", "jr", "filho", "neto", "sobrinho"]
+    palavras_nome = nome_norm.split()
+    nome_sem_sufixo = " ".join([p for p in palavras_nome if p not in sufixos])
 
     cpf_numeros = re.sub(r'\D', '', str(cpf_input))
     miolo_cpf_input = cpf_numeros[3:9] if len(cpf_numeros) == 11 else ""
@@ -317,14 +323,14 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
                 
                 nome_pep_norm = normalizar_texto(nome_pep_row)
 
-                if nome_norm == nome_pep_norm:
+                if nome_norm == nome_pep_norm or (nome_sem_sufixo and nome_sem_sufixo == nome_pep_norm):
                     cpf_row = (row.get('CPF') or row.get('Cpf') or row.get('CPF_PEP') or 
                                row.get('CPF_PESSOA') or row.get('Cpf_Pessoa') or "")
                     
                     cpf_row_numeros = re.sub(r'\D', '', cpf_row)
 
                     if miolo_cpf_input and len(cpf_row_numeros) >= 6:
-                        if miolo_cpf_input not in cpf_row_numeros:
+                        if miolo_cpf_input not in cpf_row_numeros and nome_norm != nome_pep_norm:
                             continue
 
                     cargo = (row.get('Descrição_Função') or row.get('DESCRICAO_FUNCAO') or 
@@ -333,10 +339,12 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
                     orgao = (row.get('Nome_Órgão') or row.get('NOME_ORGAO') or 
                              row.get('Órgão') or row.get('Orgao') or row.get('ORGAO_LOTACAO') or "Administração Pública (CGU)")
 
+                    detalhe = "Registro Oficial na Base da CGU" if nome_norm == nome_pep_norm else "Mapeamento por Vínculo de 1º Grau / Tronco Familiar (CGU)"
+
                     return {
                         "cargo": str(cargo).strip(),
                         "orgao": str(orgao).strip(),
-                        "detalhe": f"Registro Oficial na Base da CGU ({caminho_final})"
+                        "detalhe": detalhe
                     }
     except Exception:
         pass
@@ -369,27 +377,33 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
 
-    if nome_norm not in texto_norm:
-        return None
-
     cargos_pep = [
         "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
-        "prefeito", "prefeita", "ministro", "ministra", "desembargador", "desembargadora", 
+        "prefeito", "prefeita", "vice prefeito", "vice governadora", "ministro", "ministra", "desembargador", "desembargadora", 
         "juiz", "juiza", "juiz federal", "procurador", "procuradora", "secretario", 
         "secretaria", "vereador", "vereadora", "magistrado", "magistrada", "parlamentar", 
-        "ex ministro", "ex senador", "ex deputado", "ex governador", "ex prefeito", "politico", "politica"
+        "ex ministro", "ex senador", "ex deputado", "ex governador", "ex prefeito", "politico", "politica", "suplente"
     ]
 
-    indices_nome = [m.start() for m in re.finditer(re.escape(nome_norm), texto_norm)]
+    sufixos = ["junior", "jr", "filho", "neto", "sobrinho"]
+    palavras = nome_norm.split()
+    nome_base = " ".join([p for p in palavras if p not in sufixos])
 
-    for idx in indices_nome:
-        inicio_janela = max(0, idx - 250)
-        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 250)
-        trecho = texto_norm[inicio_janela:fim_janela]
+    termos_busca = [nome_norm]
+    if nome_base and nome_base != nome_norm:
+        termos_busca.append(nome_base)
 
-        for cargo in cargos_pep:
-            if cargo in trecho:
-                return cargo.title()
+    for tb in termos_busca:
+        if tb in texto_norm:
+            indices = [m.start() for m in re.finditer(re.escape(tb), texto_norm)]
+            for idx in indices:
+                inicio_janela = max(0, idx - 250)
+                fim_janela = min(len(texto_norm), idx + len(tb) + 250)
+                trecho = texto_norm[inicio_janela:fim_janela]
+
+                for cargo in cargos_pep:
+                    if cargo in trecho:
+                        return cargo.title()
 
     return None
 
@@ -599,7 +613,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     origem_identificacao = f"Base Oficial de PEPs ({match_planilha['detalhe']})"
                     cargo_detectado = match_planilha["cargo"]
                     orgao_detectado = match_planilha["orgao"]
-                    detalhe_cargo = "Cadastro Ativo na Base Oficial do Governo Federal (CGU)"
+                    detalhe_cargo = "Cadastro Ativo / Mapeamento Familiar na Base Oficial do Governo Federal (CGU)"
                 else:
                     origem_identificacao = "Pesquisa em Portais Públicos e Notícias Web"
                     
@@ -613,9 +627,13 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         detalhe_cargo = "Histórico Mapeado na Wikipédia Brasil"
                     else:
                         res_web = ""
+                        sufixos = ["junior", "jr", "filho", "neto", "sobrinho"]
+                        palavras_nome = nome_limpo.lower().split()
+                        nome_base_busca = " ".join([p for p in palavras_nome if p not in sufixos])
+
                         queries_estritas = [
-                            f'"{nome_limpo}" cargo politico',
-                            f'"{nome_limpo}" senador OR deputado OR prefeito OR ministro OR vereador OR juiz'
+                            f'"{nome_limpo}" politico OR senador OR prefeito OR vice',
+                            f'"{nome_base_busca}" politico OR senador OR prefeito OR vice'
                         ]
                         try:
                             with DDGS() as ddgs:
@@ -642,7 +660,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
 
                 if detec_pep:
                     STATUS_PEP = "SIM"
-                    PEP_VINCULO = "NÃO CONSTA"
+                    PEP_VINCULO = "SINALIZADO" if "Tronco Familiar" in origem_identificacao else "NÃO CONSTA"
                     CARGOS_EXERCIDOS = cargo_detectado
                     ORGAO_ENTIDADE = orgao_detectado
                     DETALHE_EXPOSICAO = detalhe_cargo
@@ -665,7 +683,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                     PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                # REGISTRA NO NUVEM SUPABASE PERMANENTE
+                # REGISTRA NO SUPABASE
                 registrar_vencimento(
                     nome=nome_input,
                     cpf_raw=cpf_input,
@@ -835,7 +853,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                 ])
 
                 make_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
-                    ("RELAÇÃO 2º GRAU PEP", "Sem vínculos mapeados"),
+                    ("RELAÇÃO 2º GRAU PEP", "Sem vínculos adicionais"),
                     ("SOCIEDADES E PARTICIPAÇÕES", "Sem restrições ativas")
                 ])
 
