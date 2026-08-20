@@ -162,7 +162,7 @@ def obter_cargo_usuario(email: str) -> str:
     return dict_usuarios.get(email_clean, "Operador")
 
 # -----------------------------------------------------------------------------
-# 🛠️ FUNÇÕES DE MÁSCARA, VALIDAÇÃO E REGISTRO NO SUPABASE
+# 🛠️ MÁSCARAS, VALIDAÇÃO E MOTOR DE CROSS-VALIDATION NOME x CPF
 # -----------------------------------------------------------------------------
 def formatar_cpf_estetico(cpf_raw: str) -> str:
     """Aplica a máscara estética 000.000.000-00 mantendo os zeros à esquerda."""
@@ -207,39 +207,71 @@ def validar_cpf(cpf: str) -> bool:
         
     return True
 
+def extrair_sufixo_familiar(palavras):
+    sufixos = {"junior", "jr", "filho", "neto", "sobrinho"}
+    if palavras and palavras[-1] in sufixos:
+        suf = palavras[-1]
+        return "junior" if suf == "jr" else suf
+    return None
+
 def nomes_sao_compativeis(nome1, nome2):
     """
-    Compara se dois nomes são razoavelmente parecidos/compatíveis (evita cadastrar CPF de um para o nome de outro).
+    Compara se dois nomes se referem ao mesmo indivíduo com flexibilidade,
+    mas bloqueia trocas entre Pai e Filho (Junior/Filho/Neto) ou pessoas distintas.
     """
     n1 = normalizar_texto(nome1)
     n2 = normalizar_texto(nome2)
     if not n1 or not n2:
         return True
 
-    p1 = set(n1.split())
-    p2 = set(n2.split())
+    p1 = n1.split()
+    p2 = n2.split()
 
-    # Remove preposições comuns
-    ignorar = {"de", "da", "do", "das", "dos", "e"}
-    p1 = p1 - ignorar
-    p2 = p2 - ignorar
+    # 1. Trava Estrita de Sufixo Familiar (Diferencia Pai de Filho/Junior)
+    suf1 = extrair_sufixo_familiar(p1)
+    suf2 = extrair_sufixo_familiar(p2)
+    if suf1 != suf2:
+        return False  # Um é Junior/Filho e o outro não -> Pessoas Diferentes!
 
-    intersecao = p1.intersection(p2)
-    
-    # Se houver pelo menos 2 palavras idênticas ou se o primeiro nome + sobrenome baterem
-    if len(intersecao) >= 2 or (list(n1.split())[0] == list(n2.split())[0] and len(intersecao) >= 1):
+    # Remove preposições e sufixos já validados
+    ignorar = {"de", "da", "do", "das", "dos", "e", "junior", "jr", "filho", "neto", "sobrinho"}
+    w1 = [w for w in p1 if w not in ignorar]
+    w2 = [w for w in p2 if w not in ignorar]
+
+    if not w1 or not w2:
         return True
-    return False
+
+    # Primeiro nome precisa ser idêntico
+    if w1[0] != w2[0]:
+        return False
+
+    # Verifica se há pelo menos um sobrenome idêntico em comum
+    set1 = set(w1[1:]) if len(w1) > 1 else set(w1)
+    set2 = set(w2[1:]) if len(w2) > 1 else set(w2)
+
+    if not set1 or not set2:
+        return True
+
+    intersecao = set1.intersection(set2)
+    return len(intersecao) >= 1
 
 def validar_coerencia_nome_cpf(nome_input, cpf_input):
     """
-    Verifica se o CPF informado não pertence a outra pessoa cadastrada no banco ou na planilha CGU.
+    Motor de Cross-Validation: Garante que o CPF informado corresponda ao nome digitado,
+    bloqueando tentativas de vincular o CPF de uma pessoa ao nome de outra.
     """
     cpf_limpo = re.sub(r'\D', '', str(cpf_input))
     if len(cpf_limpo) != 11:
         return True, ""
 
-    # 1. Checa histórico no Banco Supabase
+    # A. Checagem na BASE NATIVA
+    for chave_nat, dados_nat in BASE_PEP_NATIVA.items():
+        cpf_conhecido = dados_nat.get("cpf_conhecido", "")
+        if cpf_conhecido and cpf_limpo == cpf_conhecido:
+            if not nomes_sao_compativeis(nome_input, chave_nat):
+                return False, f"O CPF {formatar_cpf_estetico(cpf_input)} pertence a '{chave_nat}'. O nome digitado ({nome_input.upper()}) não corresponde a esta identidade."
+
+    # B. Checagem no Banco de Dados Supabase
     engine = obter_conexao_banco()
     if engine:
         try:
@@ -252,7 +284,7 @@ def validar_coerencia_nome_cpf(nome_input, cpf_input):
         except Exception:
             pass
 
-    # 2. Checa com a Planilha da CGU (se o miolo do CPF estiver na CGU)
+    # C. Checagem com a Planilha da CGU
     caminho_cgu = identificar_arquivo_pep()
     if caminho_cgu:
         miolo_cpf = cpf_limpo[3:9]
@@ -268,7 +300,7 @@ def validar_coerencia_nome_cpf(nome_input, cpf_input):
                     if miolo_cpf and len(cpf_row_nums) >= 6 and miolo_cpf in cpf_row_nums:
                         nome_cgu = (row.get('Nome_PEP') or row.get('NOME_PEP') or row.get('Nome') or "")
                         if nome_cgu and not nomes_sao_compativeis(nome_input, nome_cgu):
-                            return False, f"O CPF informado consta na base da CGU registrado para '{nome_cgu}'. O nome digitado ({nome_input.upper()}) não é compatível."
+                            return False, f"O CPF informado consta na base oficial da CGU registrado para '{nome_cgu}'. O nome digitado ({nome_input.upper()}) não é compatível."
         except Exception:
             pass
 
@@ -347,6 +379,7 @@ def carregar_vencimentos():
 BASE_PEP_NATIVA = {
     "GAUDENCIO GONCALVES DE LUCENA": {
         "tipo": "DIRETO",
+        "cpf_conhecido": "03429628334",
         "cargo": "Agente Político / Exposição Direta (Ex-Vice-Prefeito de Fortaleza / Suplente de Senador)",
         "orgao": "Administração Pública / Poder Executivo",
         "detalhe": "Histórico Mapeado de Notória Exposição e Função Pública Direta",
@@ -355,6 +388,7 @@ BASE_PEP_NATIVA = {
     "GAUDENCIO GONCALVES DE LUCENA JUNIOR": {
         "tipo": "FAMILIAR",
         "sufixo": "JUNIOR",
+        "cpf_conhecido": "66632935320",
         "nome_parente": "Gaudêncio Gonçalves de Lucena",
         "cargo": "Vínculo Familiar de 1º Grau (Junior de Agente Político Exposto: Ex-Vice-Prefeito / Suplente)",
         "orgao": "Administração Pública (Vínculo Familiar de 1º Grau)",
@@ -1067,32 +1101,32 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         ("PRÓXIMA ATUALIZACAO RECOMENDADA", PROXIMA_ATUALIZACAO)
                     ])
 
-                    story.append(Spacer(1, 16))
-                    disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
-                    story.append(Paragraph(disclaimer_txt, style_disclaimer))
-                    story.append(Spacer(1, 10))
-                    
-                    hora_agora_bsb = agora_dt.strftime('%d/%m/%Y às %H:%M:%S')
-                    story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
+                story.append(Spacer(1, 16))
+                disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
+                story.append(Paragraph(disclaimer_txt, style_disclaimer))
+                story.append(Spacer(1, 10))
+                
+                hora_agora_bsb = agora_dt.strftime('%d/%m/%Y às %H:%M:%S')
+                story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
 
-                    def add_footer(canvas, doc):
-                        canvas.saveState()
-                        ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
-                        canvas.setFont("Helvetica", 7)
-                        canvas.setFillColor(colors.HexColor('#777777'))
-                        canvas.drawCentredString(A4[0] / 2.0, 20, ft_text)
-                        canvas.restoreState()
+                def add_footer(canvas, doc):
+                    canvas.saveState()
+                    ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
+                    canvas.setFont("Helvetica", 7)
+                    canvas.setFillColor(colors.HexColor('#777777'))
+                    canvas.drawCentredString(A4[0] / 2.0, 20, ft_text)
+                    canvas.restoreState()
 
-                    doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
-                    pdf_bytes = buffer.getvalue()
+                doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
+                pdf_bytes = buffer.getvalue()
 
-                    st.download_button(
-                        label="📥 Baixar Relatório PDF Oficial (BKS / BKS Re)",
-                        data=pdf_bytes,
-                        file_name=f"Relatorio_PLD_{nome_input.replace(' ', '_').upper()}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
+                st.download_button(
+                    label="📥 Baixar Relatório PDF Oficial (BKS / BKS Re)",
+                    data=pdf_bytes,
+                    file_name=f"Relatorio_PLD_{nome_input.replace(' ', '_').upper()}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
 # =============================================================================
 # 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS
