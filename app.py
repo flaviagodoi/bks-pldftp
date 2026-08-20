@@ -275,7 +275,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA SEARCH API + WEB CLEAN)
+# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + PARENTESCO / TRONCO FAMILIAR)
 # -----------------------------------------------------------------------------
 def identificar_arquivo_pep():
     """Localiza o arquivo da planilha de PEPs no diretório local."""
@@ -347,93 +347,78 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
 def buscar_web_robusta(nome):
     """
-    Compila trechos reais de notícias e do Wikipédia, incluindo busca no tronco familiar se houver sufixos.
+    Compila trechos reais de notícias e do Wikipédia.
     """
     texto_compilado = ""
-    nome_norm = normalizar_texto(nome)
-    sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
-    palavras = nome_norm.split()
-    tem_sufixo = len(palavras) > 1 and palavras[-1] in sufixos_familiares
-    nome_base_pai = " ".join(palavras[:-1]) if tem_sufixo else nome
-
-    queries_busca = [f'"{nome}"']
-    if tem_sufixo:
-        queries_busca.append(f'"{nome_base_pai}"')
-
-    for q_nome in queries_busca:
-        # 1. API da Wikipédia
-        try:
-            url_wiki = "https://pt.wikipedia.org/w/api.php"
-            params_search = {
-                "action": "query",
-                "list": "search",
-                "srsearch": f'{q_nome}',
-                "format": "json"
-            }
-            res = requests.get(url_wiki, params=params_search, timeout=5).json()
-            search_hits = res.get("query", {}).get("search", [])
+    
+    # 1. API da Wikipédia
+    try:
+        url_wiki = "https://pt.wikipedia.org/w/api.php"
+        params_search = {
+            "action": "query",
+            "list": "search",
+            "srsearch": f'"{nome}"',
+            "format": "json"
+        }
+        res = requests.get(url_wiki, params=params_search, timeout=5).json()
+        search_hits = res.get("query", {}).get("search", [])
+        
+        for hit in search_hits[:3]:
+            snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
+            texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
             
-            for hit in search_hits[:3]:
-                snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
-                texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
-                
-            if search_hits:
-                primeiro_titulo = search_hits[0].get("title")
-                params_ext = {
-                    "action": "query",
-                    "format": "json",
-                    "prop": "extracts",
-                    "exintro": True,
-                    "explaintext": True,
-                    "titles": primeiro_titulo
-                }
-                res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
-                pages = res_ext.get("query", {}).get("pages", {})
-                for p_id, p_data in pages.items():
-                    if p_id != "-1":
-                        texto_compilado += f" {p_data.get('extract', '')}"
-        except Exception:
-            pass
+        if search_hits:
+            primeiro_titulo = search_hits[0].get("title")
+            params_ext = {
+                "action": "query",
+                "format": "json",
+                "prop": "extracts",
+                "exintro": True,
+                "explaintext": True,
+                "titles": primeiro_titulo
+            }
+            res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
+            pages = res_ext.get("query", {}).get("pages", {})
+            for p_id, p_data in pages.items():
+                if p_id != "-1":
+                    texto_compilado += f" {p_data.get('extract', '')}"
+    except Exception:
+        pass
 
-        # 2. DuckDuckGo HTML
-        try:
-            url_ddg = "https://html.duckduckgo.com/html/"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            data = {"q": f'{q_nome} politico OR prefeito OR senador OR vice OR deputado'}
-            resp = requests.post(url_ddg, data=data, headers=headers, timeout=5)
-            if resp.status_code == 200:
-                snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
-                for snip in snippets:
-                    snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
-                    texto_compilado += f" {snippet_limpo}"
-        except Exception:
-            pass
+    # 2. DuckDuckGo HTML
+    try:
+        url_ddg = "https://html.duckduckgo.com/html/"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        data = {"q": f'"{nome}" politico OR prefeito OR senador OR vice OR deputado'}
+        resp = requests.post(url_ddg, data=data, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
+            for snip in snippets:
+                snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
+                texto_compilado += f" {snippet_limpo}"
+    except Exception:
+        pass
 
-        # 3. Biblioteca DDGS
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(f'{q_nome} politico OR vice prefeito OR senador', max_results=4))
-                for r in results:
-                    texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
-        except Exception:
-            pass
+    # 3. Biblioteca DDGS
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(f'"{nome}" politico OR vice prefeito OR senador', max_results=4))
+            for r in results:
+                texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
+    except Exception:
+        pass
 
     return texto_compilado
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     """
-    Analisa a presença de cargos públicos e classifica enquadramento DIRETO ou FAMILIAR (Filho, Esposa, Cônjuge, etc.).
+    Analisa a presença de cargos públicos ao redor do nome informado.
     """
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
 
     if not texto_norm or not nome_norm:
         return None, None
-
-    sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
-    palavras = nome_norm.split()
-    tem_sufixo = len(palavras) > 1 and palavras[-1] in sufixos_familiares
-    nome_base_pai = " ".join(palavras[:-1]) if tem_sufixo else None
 
     cargos_pep = [
         "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
@@ -444,36 +429,91 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
         "ex prefeito", "politico", "politica", "suplente", "candidato", "vice"
     ]
 
-    termos_parentesco = [
-        "filho do", "filho de", "filha do", "filha de",
-        "esposa do", "esposa de", "esposo do", "esposo de",
-        "conjuge do", "conjuge de", "marido do", "marido de",
-        "mulher do", "mulher de", "casado com", "casada com",
-        "neto do", "neto de", "neta do", "neta de",
-        "sobrinho do", "sobrinho de", "sobrinha do", "sobrinha de",
-        "herdeiro do", "herdeiro de", "pai do", "pai de", "mae do", "mae de",
-        "irmao do", "irmao de", "irma do", "irma de", "parente de", "parente do"
-    ]
-
     indices = [m.start() for m in re.finditer(re.escape(nome_norm), texto_norm)]
-    if not indices and nome_base_pai:
-        indices = [m.start() for m in re.finditer(re.escape(nome_base_pai), texto_norm)]
 
     for idx in indices:
-        inicio_janela = max(0, idx - 300)
-        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 300)
+        inicio_janela = max(0, idx - 250)
+        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 250)
         trecho = texto_norm[inicio_janela:fim_janela]
 
         for cargo in cargos_pep:
             if cargo in trecho:
-                tem_relacao_parentesco = any(rel in trecho for rel in termos_parentesco) or tem_sufixo
-                
-                if tem_relacao_parentesco:
-                    return "FAMILIAR", f"Vínculo Familiar / Parentesco (Agente Político: {cargo.title()})"
-                else:
-                    return "DIRETO", cargo.title()
+                return "DIRETO", cargo.title()
 
     return None, None
+
+def verificar_pep_completo(nome_input, cpf_input):
+    """
+    Mecanismo Unificado que diferencia PEP DIRETO de PEP POR VÍNCULO FAMILIAR (Filho/Junior/Esposa/etc.).
+    """
+    nome_limpo = nome_input.strip()
+    nome_norm = normalizar_texto(nome_limpo)
+    
+    # 1. Checagem Direta do Nome na Planilha da CGU
+    match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
+    if match_planilha:
+        return {
+            "tipo": "DIRETO",
+            "cargo": match_planilha["cargo"],
+            "orgao": match_planilha["orgao"],
+            "detalhe": "Cadastro Ativo na Base Oficial do Governo Federal (CGU)",
+            "origem": f"Base Oficial de PEPs ({match_planilha['detalhe']})"
+        }
+
+    # 2. Checagem Direta do Nome na Web
+    texto_web_direto = buscar_web_robusta(nome_limpo)
+    tipo_web, cargo_web = analisar_proximidade_cargo(texto_web_direto, nome_limpo)
+    
+    if cargo_web:
+        return {
+            "tipo": "DIRETO",
+            "cargo": f"Agente Político / Exposição Pública ({cargo_web})",
+            "orgao": "Administração Pública / Registro Histórico",
+            "detalhe": "Histórico Mapeado em Fontes Públicas e Notícias Web",
+            "origem": "Pesquisa em Portais Públicos e Notícias Web"
+        }
+
+    # 3. Checagem por Vínculo de Parentesco (Se o nome contiver sufixos familiares: Junior, Filho, Neto, Sobrinho, Jr)
+    sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
+    palavras = nome_norm.split()
+    
+    if len(palavras) > 1 and palavras[-1] in sufixos_familiares:
+        sufixo_encontrado = palavras[-1].upper()
+        if sufixo_encontrado == "JR":
+            sufixo_encontrado = "JUNIOR"
+            
+        nome_pai_title = " ".join([p.capitalize() for p in palavras[:-1]])
+
+        # 3a. Verifica se o Pai é PEP na Planilha CGU
+        match_pai_planilha = buscar_na_planilha_pep(nome_pai_title, "")
+        if match_pai_planilha:
+            return {
+                "tipo": "FAMILIAR",
+                "sufixo": sufixo_encontrado,
+                "nome_parente": nome_pai_title,
+                "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {match_pai_planilha['cargo']})",
+                "orgao": match_pai_planilha["orgao"],
+                "detalhe": f"Vínculo Direto com PEP Mapeado na Base Oficial da CGU ({nome_pai_title})",
+                "origem": f"Mapeamento de Parentesco e Base Oficial da CGU ({nome_pai_title})"
+            }
+
+        # 3b. Verifica se o Pai é PEP na Web/Wikipédia
+        texto_web_pai = buscar_web_robusta(nome_pai_title)
+        _, cargo_pai_web = analisar_proximidade_cargo(texto_web_pai, nome_pai_title)
+
+        if cargo_pai_web:
+            return {
+                "tipo": "FAMILIAR",
+                "sufixo": sufixo_encontrado,
+                "nome_parente": nome_pai_title,
+                "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {cargo_pai_web})",
+                "orgao": "Administração Pública / Registro Histórico",
+                "detalhe": f"Vínculo Direto de Parentesco com Agente Político Mapeado na Web ({nome_pai_title})",
+                "origem": f"Mapeamento de Vínculos Familiares em Fontes Públicas ({nome_pai_title})"
+            }
+
+    # Se não for Direto nem Familiar
+    return None
 
 # -----------------------------------------------------------------------------
 # 🔑 CONFIGURAÇÃO DE ACESSO E AUTENTICAÇÃO
@@ -673,65 +713,43 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
             with st.spinner("🔎 Consultando base oficial e realizando varredura web de governança..."):
                 
                 nome_limpo = nome_input.strip()
-                tipo_enquadramento = None
-                
-                # 1. PRIMEIRA OPÇÃO: BUSCA NA PLANILHA LOCAL DA CGU
-                match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
-                
-                if match_planilha:
-                    detec_pep = True
-                    tipo_enquadramento = "DIRETO"
-                    origem_identificacao = f"Base Oficial de PEPs ({match_planilha['detalhe']})"
-                    cargo_detectado = match_planilha["cargo"]
-                    orgao_detectado = match_planilha["orgao"]
-                    detalhe_cargo = "Cadastro Ativo na Base Oficial do Governo Federal (CGU)"
-                else:
-                    # 2. SEGUNDA OPÇÃO: BUSCA WIKIPÉDIA + VARREDURA WEB ROBUSTA
-                    texto_web_compilado = buscar_web_robusta(nome_limpo)
-                    tipo_enquadramento, cargo_web = analisar_proximidade_cargo(texto_web_compilado, nome_limpo)
-
-                    if cargo_web:
-                        detec_pep = True
-                        cargo_detectado = cargo_web
-                        orgao_detectado = "Administração Pública / Registro Histórico"
-                        detalhe_cargo = "Histórico Mapeado em Fontes Públicas e Notícias Web"
-                        origem_identificacao = "Pesquisa em Portais Públicos e Notícias Web"
-                    else:
-                        detec_pep = False
-                        origem_identificacao = "Pesquisa em Portais Públicos e Notícias Web"
+                res_pep = verificar_pep_completo(nome_limpo, cpf_input)
 
                 SITUACAO_CPF = "VÁLIDO"
                 tz_bsb = timezone(timedelta(hours=-3))
                 agora_dt = datetime.now(tz_bsb)
 
-                if detec_pep:
-                    STATUS_PEP = "SIM"
+                if res_pep:
+                    STATUS_PEP_BANCO = "SIM"
                     
-                    if tipo_enquadramento == "FAMILIAR":
-                        PEP_VINCULO = "SINALIZADO"
-                        RELACAO_2GRAU = "Relacionamento próximo"
-                        PRAZO_RENOVAÇÃO = "06 MESES"
-                        PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
-                    else:
+                    if res_pep["tipo"] == "DIRETO":
+                        STATUS_PEP_DIRETO = "SIM"
                         PEP_VINCULO = "NÃO CONSTA"
                         RELACAO_2GRAU = "Sem vínculos adicionais"
-                        PRAZO_RENOVAÇÃO = "06 MESES"
-                        PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
+                    else:
+                        STATUS_PEP_DIRETO = "NÃO"
+                        PEP_VINCULO = f"SINALIZADO (1º GRAU - {res_pep.get('sufixo', 'FAMILIAR')})"
+                        RELACAO_2GRAU = "Relacionamento próximo"
 
-                    CARGOS_EXERCIDOS = cargo_detectado
-                    ORGAO_ENTIDADE = orgao_detectado
-                    DETALHE_EXPOSICAO = detalhe_cargo
+                    CARGOS_EXERCIDOS = res_pep["cargo"]
+                    ORGAO_ENTIDADE = res_pep["orgao"]
+                    DETALHE_EXPOSICAO = res_pep["detalhe"]
+                    ORIGEM_IDENTIFICACAO = res_pep["origem"]
                     RISCO_FINAL = "ALTO RISCO"
-                    APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou histórico em alta função pública / PEP ({origem_identificacao})"
+                    PRAZO_RENOVAÇÃO = "06 MESES"
+                    APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou vínculo direto de parentesco com PEP ({ORIGEM_IDENTIFICACAO})"
                     PERFIL_OP = "Pessoa Politicamente Exposta (PEP)"
-                    PARECER = f"Identificado enquadramento regulatório de PEP ({cargo_detectado}). Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
+                    PARECER = f"Identificado enquadramento regulatório de PEP ({CARGOS_EXERCIDOS}). Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
+                    PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
                 else:
-                    STATUS_PEP = "NÃO"
+                    STATUS_PEP_BANCO = "NÃO"
+                    STATUS_PEP_DIRETO = "NÃO"
                     PEP_VINCULO = "NÃO CONSTA"
                     RELACAO_2GRAU = "Sem vínculos mapeados"
                     CARGOS_EXERCIDOS = "Nenhum cargo público detectado"
                     ORGAO_ENTIDADE = "Sem vínculo identificado"
                     DETALHE_EXPOSICAO = "Sem histórico de exposição pública registrado"
+                    ORIGEM_IDENTIFICACAO = "Pesquisa em Portais Públicos e Notícias Web"
                     RISCO_FINAL = "BAIXO"
                     PRAZO_RENOVAÇÃO = "01 ANO"
                     APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta na base oficial da CGU nem nos portais de transparência"
@@ -744,14 +762,14 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     nome=nome_input,
                     cpf_raw=cpf_input,
                     email_operador=st.session_state.email_logado,
-                    status_pep=STATUS_PEP,
+                    status_pep=STATUS_PEP_BANCO,
                     data_emissao_dt=agora_dt,
                     data_vencimento_str=PROXIMA_ATUALIZACAO
                 )
 
                 st.markdown("---")
-                if STATUS_PEP == "SIM":
-                    st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA (PEP)** | Cargo: {CARGOS_EXERCIDOS} | Origem: {origem_identificacao}")
+                if res_pep:
+                    st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA ({'PEP DIRETO' if res_pep['tipo']=='DIRETO' else 'PEP POR VÍNCULO FAMILIAR'})** | Cargo: {CARGOS_EXERCIDOS} | Origem: {ORIGEM_IDENTIFICACAO}")
                 else:
                     st.success("🟢 **RESULTADO: NADA CONSTA (NÃO É PEP)**")
 
@@ -902,7 +920,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                 ])
 
                 make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
-                    ("STATUS PEP DIRETO", STATUS_PEP, "STATUS_PEP"),
+                    ("STATUS PEP DIRETO", STATUS_PEP_DIRETO, "STATUS_PEP"),
                     ("STATUS POR VÍNCULO", PEP_VINCULO),
                     ("ÓRGÃO / ENTIDADE DE ATUAÇÃO", ORGAO_ENTIDADE),
                     ("ENQUADRAMENTO DO CARGO", DETALHE_EXPOSICAO)
@@ -920,7 +938,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     ("APONTAMENTOS / RESTRIÇÕES", APONTAMENTOS)
                 ])
 
-                alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com as tratativas de seguro." if STATUS_PEP == "SIM" else None
+                alerta_gerencia = "Obrigatório solicitar aprovação da gerência antes de prosseguir com as tratativas de seguro." if res_pep else None
 
                 make_sec("5. CONCLUSÃO E RECOMENDAÇÕES DE GOVERNANÇA", [
                     ("NÍVEL DE RISCO FINAL", RISCO_FINAL, "RISCO_FINAL"),
