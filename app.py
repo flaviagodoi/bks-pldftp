@@ -275,7 +275,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA SEARCH API + WEB FALLBACK)
+# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA SEARCH API + WEB CLEAN)
 # -----------------------------------------------------------------------------
 def identificar_arquivo_pep():
     """Localiza o arquivo da planilha de PEPs no diretório local."""
@@ -347,10 +347,11 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
 def buscar_web_robusta(nome):
     """
-    Compila dados da Wikipédia e portais públicos.
+    Compila apenas trechos reais de notícias (snippets), ignorando formulários de busca.
     """
     texto_compilado = ""
     
+    # 1. API da Wikipédia (Apenas texto informativo)
     try:
         url_wiki = "https://pt.wikipedia.org/w/api.php"
         params_search = {
@@ -363,7 +364,8 @@ def buscar_web_robusta(nome):
         search_hits = res.get("query", {}).get("search", [])
         
         for hit in search_hits[:3]:
-            texto_compilado += f" {hit.get('title', '')} {hit.get('snippet', '')}"
+            snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
+            texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
             
         if search_hits:
             primeiro_titulo = search_hits[0].get("title")
@@ -375,7 +377,7 @@ def buscar_web_robusta(nome):
                 "explaintext": True,
                 "titles": primeiro_titulo
             }
-            res_ext = requests.get(url_wiki, params=params_ext, timeout=5).json()
+            res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
             pages = res_ext.get("query", {}).get("pages", {})
             for p_id, p_data in pages.items():
                 if p_id != "-1":
@@ -383,17 +385,21 @@ def buscar_web_robusta(nome):
     except Exception:
         pass
 
+    # 2. DuckDuckGo HTML (Extração exclusiva das tags de resumo .result__snippet)
     try:
         url_ddg = "https://html.duckduckgo.com/html/"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         data = {"q": f'"{nome}" politico OR prefeito OR senador OR vice OR deputado'}
         resp = requests.post(url_ddg, data=data, headers=headers, timeout=5)
         if resp.status_code == 200:
-            texto_limpo = re.sub(r'<[^>]+>', ' ', resp.text)
-            texto_compilado += f" {texto_limpo}"
+            snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
+            for snip in snippets:
+                snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
+                texto_compilado += f" {snippet_limpo}"
     except Exception:
         pass
 
+    # 3. Biblioteca DDGS (Resultados estruturados)
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(f'"{nome}" politico OR vice prefeito OR senador', max_results=4))
@@ -445,8 +451,8 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
         indices = [m.start() for m in re.finditer(re.escape(nome_base_pai), texto_norm)]
 
     for idx in indices:
-        inicio_janela = max(0, idx - 300)
-        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 300)
+        inicio_janela = max(0, idx - 250)
+        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 250)
         trecho = texto_norm[inicio_janela:fim_janela]
 
         for cargo in cargos_pep:
