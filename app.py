@@ -1,15 +1,9 @@
 import streamlit as st
-import io, os, re, unicodedata, requests, csv, sqlite3
+import io, os, re, unicodedata, requests, csv
 from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
 from duckduckgo_search import DDGS
-
-# Importa PyGithub de forma segura
-try:
-    from github import Github
-    GITHUB_DISPONIVEL = True
-except ImportError:
-    GITHUB_DISPONIVEL = False
+from sqlalchemy import create_engine, text
 
 # ReportLab - Gerador Vetorial Profissional de PDF
 from reportlab.lib.pagesizes import A4
@@ -19,59 +13,42 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🗄️ BANCO DE DADOS PERSISTENTE LOCAL (SQLITE / CSV)
+# 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE (POSTGRESQL)
 # -----------------------------------------------------------------------------
-ARQUIVO_VENCIMENTOS = "vencimentos.csv"
-DB_NAME = "bks_pld_vencimentos.db"
+def obter_conexao_banco():
+    """Retorna a engine de conexão do SQLAlchemy para o Supabase."""
+    if "DATABASE_URL" in st.secrets:
+        db_url = st.secrets["DATABASE_URL"]
+        # Ajuste de prefixo do SQLAlchemy para Postgres
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+        return create_engine(db_url, pool_pre_ping=True)
+    return None
 
-def inicializar_banco_dados():
-    """Inicializa a tabela SQLite no banco local para persistência de dados."""
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS vencimentos (
-                nome TEXT,
-                cpf TEXT,
-                cpf_mascarado TEXT,
-                cpf_key TEXT PRIMARY KEY,
-                operador TEXT,
-                data_emissao TEXT,
-                status_pep TEXT,
-                data_vencimento TEXT,
-                data_vencimento_iso TEXT
-            )
-        ''')
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
+def inicializar_banco_supabase():
+    """Cria a tabela no Supabase automaticamente se ela ainda não existir."""
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text('''
+                    CREATE TABLE IF NOT EXISTS vencimentos_pld (
+                        nome TEXT,
+                        cpf TEXT,
+                        cpf_mascarado TEXT,
+                        cpf_key TEXT PRIMARY KEY,
+                        operador TEXT,
+                        data_emissao TEXT,
+                        status_pep TEXT,
+                        data_vencimento TEXT,
+                        data_vencimento_iso TEXT
+                    );
+                '''))
+                conn.commit()
+        except Exception:
+            pass
 
-inicializar_banco_dados()
-
-def sincronizar_com_github(caminho_arquivo, mensagem_commit):
-    """Sincroniza os arquivos de controle com o repositório GitHub de forma segura."""
-    if not GITHUB_DISPONIVEL:
-        return
-    try:
-        if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
-            token = st.secrets["GITHUB_TOKEN"]
-            repo_nome = st.secrets["GITHUB_REPO"]
-            if token and repo_nome:
-                g = Github(token)
-                repo = g.get_repo(repo_nome)
-
-                if os.path.exists(caminho_arquivo):
-                    with open(caminho_arquivo, mode='r', encoding='utf-8-sig', errors='ignore') as f:
-                        conteudo_local = f.read()
-
-                    try:
-                        conteudo_remoto = repo.get_contents(caminho_arquivo)
-                        repo.update_file(caminho_arquivo, mensagem_commit, conteudo_local, conteudo_remoto.sha)
-                    except Exception:
-                        repo.create_file(caminho_arquivo, mensagem_commit, conteudo_local)
-    except Exception:
-        pass
+inicializar_banco_supabase()
 
 # -----------------------------------------------------------------------------
 # 🔐 CONTROLE DE ACESSO, HIERARQUIA DE CARGOS E USUÁRIOS
@@ -97,7 +74,7 @@ USUARIOS_PADRAO_NATIVOS = [
 ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
 
 def carregar_usuarios():
-    """Carrega a lista de usuários mantendo as permissões de cada cargo."""
+    """Carrega a lista de usuários mantendo a hierarquia corporativa."""
     usuarios = {}
     
     if os.path.exists(ARQUIVO_USUARIOS):
@@ -122,18 +99,17 @@ def carregar_usuarios():
     return usuarios
 
 def salvar_usuarios_csv(dict_usuarios):
-    """Grava os usuários e papéis no CSV e sincroniza com a nuvem."""
+    """Grava os usuários e papéis no arquivo local."""
     try:
         with open(ARQUIVO_USUARIOS, mode='w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f, delimiter=';')
             for email, cargo in dict_usuarios.items():
                 writer.writerow([email, cargo])
-        sincronizar_com_github(ARQUIVO_USUARIOS, "Atualização da lista de usuários via Painel PLD/FTP")
     except Exception as e:
         st.error(f"Erro ao salvar lista de usuários: {e}")
 
 def adicionar_novo_usuario(email_input, cargo_escolhido):
-    """Adiciona um novo e-mail com a permissão definida."""
+    """Adiciona um novo e-mail com o cargo definido."""
     email_clean = email_input.strip().lower()
     if not email_clean:
         return False, "O e-mail não pode estar em branco."
@@ -178,7 +154,7 @@ def eh_administrador(email: str) -> bool:
     return cargo in ["Administrador/Programador", "Diretoria", "Gerente", "Administrador"] or email_clean in [a.lower() for a in CARGOS_NATIVOS.keys()]
 
 def obter_cargo_usuario(email: str) -> str:
-    """Retorna o título do cargo do usuário."""
+    """Retorna o título do cargo do e-mail informado."""
     if not email:
         return "Operador"
     email_clean = email.strip().lower()
@@ -186,7 +162,7 @@ def obter_cargo_usuario(email: str) -> str:
     return dict_usuarios.get(email_clean, "Operador")
 
 # -----------------------------------------------------------------------------
-# 🛠️ FUNÇÕES DE MÁSCARA, VALIDAÇÃO E BUSCAS (CGU + WEB)
+# 🛠️ FUNÇÕES DE MÁSCARA, VALIDAÇÃO E REGISTRO NO SUPABASE
 # -----------------------------------------------------------------------------
 def formatar_cpf_estetico(cpf_raw: str) -> str:
     """Aplica a máscara estética 000.000.000-00 mantendo os zeros à esquerda."""
@@ -214,7 +190,6 @@ def normalizar_texto(txt):
 def validar_cpf(cpf: str) -> bool:
     """Valida os dígitos verificadores do CPF (Módulo 11)."""
     cpf_limpo = re.sub(r'\D', '', str(cpf))
-    
     if len(cpf_limpo) != 11 or cpf_limpo == cpf_limpo[0] * 11:
         return False
     
@@ -232,6 +207,76 @@ def validar_cpf(cpf: str) -> bool:
         
     return True
 
+def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
+    """Grava o registro de forma PERMANENTE no banco de dados do Supabase."""
+    cpf_limpo_key = re.sub(r'\D', '', str(cpf_raw))
+    cpf_formatado = formatar_cpf_estetico(cpf_raw)
+    cpf_mascarado = mascarar_cpf(cpf_raw)
+    
+    try:
+        dt_venc = datetime.strptime(data_vencimento_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        dt_venc = data_vencimento_str
+
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                query = text('''
+                    INSERT INTO vencimentos_pld (nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso)
+                    VALUES (:nome, :cpf, :cpf_mascarado, :cpf_key, :operador, :data_emissao, :status_pep, :data_vencimento, :data_vencimento_iso)
+                    ON CONFLICT (cpf_key) DO UPDATE SET
+                        nome = EXCLUDED.nome,
+                        cpf = EXCLUDED.cpf,
+                        cpf_mascarado = EXCLUDED.cpf_mascarado,
+                        operador = EXCLUDED.operador,
+                        data_emissao = EXCLUDED.data_emissao,
+                        status_pep = EXCLUDED.status_pep,
+                        data_vencimento = EXCLUDED.data_vencimento,
+                        data_vencimento_iso = EXCLUDED.data_vencimento_iso;
+                ''')
+                conn.execute(query, {
+                    "nome": nome.upper().strip(),
+                    "cpf": cpf_formatado,
+                    "cpf_mascarado": cpf_mascarado,
+                    "cpf_key": cpf_limpo_key,
+                    "operador": email_operador,
+                    "data_emissao": data_emissao_dt.strftime("%d/%m/%Y %H:%M"),
+                    "status_pep": status_pep,
+                    "data_vencimento": data_vencimento_str,
+                    "data_vencimento_iso": dt_venc
+                })
+                conn.commit()
+        except Exception as e:
+            st.error(f"Erro ao salvar no Supabase: {e}")
+
+def carregar_vencimentos():
+    """Lê a lista completa de relatórios diretamente da nuvem do Supabase."""
+    registros = []
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso FROM vencimentos_pld ORDER BY data_vencimento_iso ASC;"))
+                for r in res:
+                    registros.append({
+                        "Nome": r[0],
+                        "CPF": r[1],
+                        "CPF_Mascarado": r[2],
+                        "CPF_Key": r[3],
+                        "Operador": r[4],
+                        "Data_Emissao": r[5],
+                        "Status_PEP": r[6],
+                        "Data_Vencimento": r[7],
+                        "Data_Vencimento_ISO": r[8]
+                    })
+        except Exception:
+            pass
+    return registros
+
+# -----------------------------------------------------------------------------
+# 🛠️ FUNÇÕES DE BUSCA (CGU + WIKIPÉDIA + WEB)
+# -----------------------------------------------------------------------------
 def identificar_arquivo_pep():
     """Localiza o arquivo da planilha de PEPs no diretório local."""
     for arq in ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]:
@@ -348,131 +393,6 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
 
     return None
 
-def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao_dt, data_vencimento_str):
-    """Grava o registro simultaneamente no Banco SQLite e no CSV backup."""
-    cpf_limpo_key = re.sub(r'\D', '', str(cpf_raw))
-    cpf_formatado = formatar_cpf_estetico(cpf_raw)
-    cpf_mascarado = mascarar_cpf(cpf_raw)
-    
-    try:
-        dt_venc = datetime.strptime(data_vencimento_str, "%d/%m/%Y").strftime("%Y-%m-%d")
-    except Exception:
-        dt_venc = data_vencimento_str
-
-    # 1. GRAVA NO BANCO LOCAL SQLITE
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO vencimentos (nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(cpf_key) DO UPDATE SET
-                nome=excluded.nome,
-                cpf=excluded.cpf,
-                cpf_mascarado=excluded.cpf_mascarado,
-                operador=excluded.operador,
-                data_emissao=excluded.data_emissao,
-                status_pep=excluded.status_pep,
-                data_vencimento=excluded.data_vencimento,
-                data_vencimento_iso=excluded.data_vencimento_iso
-        ''', (
-            nome.upper().strip(),
-            cpf_formatado,
-            cpf_mascarado,
-            cpf_limpo_key,
-            email_operador,
-            data_emissao_dt.strftime("%d/%m/%Y %H:%M"),
-            status_pep,
-            data_vencimento_str,
-            dt_venc
-        ))
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
-
-    # 2. GRAVA NO ARQUIVO CSV
-    registros_existentes = carregar_vencimentos()
-    novo_registro = {
-        "Nome": nome.upper().strip(),
-        "CPF": cpf_formatado,
-        "CPF_Mascarado": cpf_mascarado,
-        "CPF_Key": cpf_limpo_key,
-        "Operador": email_operador,
-        "Data_Emissao": data_emissao_dt.strftime("%d/%m/%Y %H:%M"),
-        "Status_PEP": status_pep,
-        "Data_Vencimento": data_vencimento_str,
-        "Data_Vencimento_ISO": dt_venc
-    }
-
-    atualizado = False
-    novos_registros = []
-    for reg in registros_existentes:
-        reg_cpf_key = re.sub(r'\D', '', reg.get("CPF_Key", reg.get("CPF", "")))
-        if reg_cpf_key == cpf_limpo_key and cpf_limpo_key != "":
-            novos_registros.append(novo_registro)
-            atualizado = True
-        else:
-            novos_registros.append(reg)
-
-    if not atualizado:
-        novos_registros.append(novo_registro)
-
-    try:
-        campos = ["Nome", "CPF", "CPF_Mascarado", "CPF_Key", "Operador", "Data_Emissao", "Status_PEP", "Data_Vencimento", "Data_Vencimento_ISO"]
-        with open(ARQUIVO_VENCIMENTOS, mode='w', encoding='utf-8-sig', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=campos, delimiter=';')
-            writer.writeheader()
-            for r in novos_registros:
-                r_line = {k: r.get(k, "") for k in campos}
-                writer.writerow(r_line)
-        
-        sincronizar_com_github(ARQUIVO_VENCIMENTOS, f"Atualização de relatório: {nome.upper().strip()}")
-    except Exception as e:
-        st.error(f"Erro ao salvar registro de vencimento: {e}")
-
-def carregar_vencimentos():
-    """Lê os registros combinando o banco SQLite e o CSV para garantir que nenhum dado suma."""
-    registros = []
-    
-    # Tenta carregar do SQLite
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso FROM vencimentos")
-        rows = cursor.fetchall()
-        conn.close()
-        
-        for r in rows:
-            registros.append({
-                "Nome": r[0],
-                "CPF": r[1],
-                "CPF_Mascarado": r[2],
-                "CPF_Key": r[3],
-                "Operador": r[4],
-                "Data_Emissao": r[5],
-                "Status_PEP": r[6],
-                "Data_Vencimento": r[7],
-                "Data_Vencimento_ISO": r[8]
-            })
-    except Exception:
-        pass
-
-    # Se o banco SQLite estiver vazio, lê do CSV
-    if not registros and os.path.exists(ARQUIVO_VENCIMENTOS):
-        try:
-            with open(ARQUIVO_VENCIMENTOS, mode='r', encoding='utf-8-sig') as f:
-                primeira_linha = f.readline()
-                sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
-                f.seek(0)
-                reader = csv.DictReader(f, delimiter=sep)
-                for row in reader:
-                    registros.append(row)
-        except Exception:
-            pass
-
-    return registros
-
 # -----------------------------------------------------------------------------
 # 🔑 CONFIGURAÇÃO DE ACESSO E AUTENTICAÇÃO
 # -----------------------------------------------------------------------------
@@ -485,7 +405,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ESTILIZAÇÃO CSS CUSTOMIZADA
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -746,7 +665,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                     PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                # REGISTRA / ATUALIZA NO CONTROLE DE VENCIMENTOS
+                # REGISTRA NO NUVEM SUPABASE PERMANENTE
                 registrar_vencimento(
                     nome=nome_input,
                     cpf_raw=cpf_input,
@@ -1078,7 +997,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 st.markdown("**⚡ Ação**")
             st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
-            # ESPAÇAMENTO AJUSTADO
             for idx, item in enumerate(dados_filtrados):
                 c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
                 
@@ -1101,7 +1019,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                         st.rerun()
                 st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #e6e6e6;'>", unsafe_allow_html=True)
 
-        # BOTÃO DE EXPORTAÇÃO EXCLUSIVO PARA ADMINISTRADORES
         if eh_admin:
             st.markdown("<br>", unsafe_allow_html=True)
             csv_buffer = io.StringIO()
@@ -1140,7 +1057,6 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.caption("Painel de controle de acessos e permissões dos operadores.")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # FORMULÁRIO DE INCLUSÃO (EXCLUSIVO PARA ADMINS)
     if eh_admin:
         col_add1, col_add2, col_add3 = st.columns([2.5, 1.2, 1])
         with col_add1:
