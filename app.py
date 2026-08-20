@@ -347,73 +347,82 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
 def buscar_web_robusta(nome):
     """
-    Compila apenas trechos reais de notícias (snippets), ignorando formulários de busca.
+    Compila trechos reais de notícias e do Wikipédia, incluindo busca no tronco familiar se houver sufixos.
     """
     texto_compilado = ""
-    
-    # 1. API da Wikipédia (Apenas texto informativo)
-    try:
-        url_wiki = "https://pt.wikipedia.org/w/api.php"
-        params_search = {
-            "action": "query",
-            "list": "search",
-            "srsearch": f'"{nome}"',
-            "format": "json"
-        }
-        res = requests.get(url_wiki, params=params_search, timeout=5).json()
-        search_hits = res.get("query", {}).get("search", [])
-        
-        for hit in search_hits[:3]:
-            snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
-            texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
-            
-        if search_hits:
-            primeiro_titulo = search_hits[0].get("title")
-            params_ext = {
+    nome_norm = normalizar_texto(nome)
+    sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
+    palavras = nome_norm.split()
+    tem_sufixo = len(palavras) > 1 and palavras[-1] in sufixos_familiares
+    nome_base_pai = " ".join(palavras[:-1]) if tem_sufixo else nome
+
+    queries_busca = [f'"{nome}"']
+    if tem_sufixo:
+        queries_busca.append(f'"{nome_base_pai}"')
+
+    for q_nome in queries_busca:
+        # 1. API da Wikipédia
+        try:
+            url_wiki = "https://pt.wikipedia.org/w/api.php"
+            params_search = {
                 "action": "query",
-                "format": "json",
-                "prop": "extracts",
-                "exintro": True,
-                "explaintext": True,
-                "titles": primeiro_titulo
+                "list": "search",
+                "srsearch": f'{q_nome}',
+                "format": "json"
             }
-            res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
-            pages = res_ext.get("query", {}).get("pages", {})
-            for p_id, p_data in pages.items():
-                if p_id != "-1":
-                    texto_compilado += f" {p_data.get('extract', '')}"
-    except Exception:
-        pass
+            res = requests.get(url_wiki, params=params_search, timeout=5).json()
+            search_hits = res.get("query", {}).get("search", [])
+            
+            for hit in search_hits[:3]:
+                snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
+                texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
+                
+            if search_hits:
+                primeiro_titulo = search_hits[0].get("title")
+                params_ext = {
+                    "action": "query",
+                    "format": "json",
+                    "prop": "extracts",
+                    "exintro": True,
+                    "explaintext": True,
+                    "titles": primeiro_titulo
+                }
+                res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
+                pages = res_ext.get("query", {}).get("pages", {})
+                for p_id, p_data in pages.items():
+                    if p_id != "-1":
+                        texto_compilado += f" {p_data.get('extract', '')}"
+        except Exception:
+            pass
 
-    # 2. DuckDuckGo HTML (Extração exclusiva das tags de resumo .result__snippet)
-    try:
-        url_ddg = "https://html.duckduckgo.com/html/"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        data = {"q": f'"{nome}" politico OR prefeito OR senador OR vice OR deputado'}
-        resp = requests.post(url_ddg, data=data, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
-            for snip in snippets:
-                snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
-                texto_compilado += f" {snippet_limpo}"
-    except Exception:
-        pass
+        # 2. DuckDuckGo HTML
+        try:
+            url_ddg = "https://html.duckduckgo.com/html/"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            data = {"q": f'{q_nome} politico OR prefeito OR senador OR vice OR deputado'}
+            resp = requests.post(url_ddg, data=data, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
+                for snip in snippets:
+                    snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
+                    texto_compilado += f" {snippet_limpo}"
+        except Exception:
+            pass
 
-    # 3. Biblioteca DDGS (Resultados estruturados)
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(f'"{nome}" politico OR vice prefeito OR senador', max_results=4))
-            for r in results:
-                texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
-    except Exception:
-        pass
+        # 3. Biblioteca DDGS
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(f'{q_nome} politico OR vice prefeito OR senador', max_results=4))
+                for r in results:
+                    texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
+        except Exception:
+            pass
 
     return texto_compilado
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     """
-    Analisa a presença de cargos públicos e diferencia entre enquadramento DIRETO ou FAMILIAR (Filho, Esposa, Cônjuge, etc.).
-    Retorna uma tupla: (tipo_enquadramento, cargo_ou_descricao)
+    Analisa a presença de cargos públicos e classifica enquadramento DIRETO ou FAMILIAR (Filho, Esposa, Cônjuge, etc.).
     """
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
@@ -423,7 +432,7 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
 
     sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
     palavras = nome_norm.split()
-    tem_sufixo = palavras[-1] in sufixos_familiares
+    tem_sufixo = len(palavras) > 1 and palavras[-1] in sufixos_familiares
     nome_base_pai = " ".join(palavras[:-1]) if tem_sufixo else None
 
     cargos_pep = [
@@ -451,8 +460,8 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
         indices = [m.start() for m in re.finditer(re.escape(nome_base_pai), texto_norm)]
 
     for idx in indices:
-        inicio_janela = max(0, idx - 250)
-        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 250)
+        inicio_janela = max(0, idx - 300)
+        fim_janela = min(len(texto_norm), idx + len(nome_norm) + 300)
         trecho = texto_norm[inicio_janela:fim_janela]
 
         for cargo in cargos_pep:
@@ -460,7 +469,7 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
                 tem_relacao_parentesco = any(rel in trecho for rel in termos_parentesco) or tem_sufixo
                 
                 if tem_relacao_parentesco:
-                    return "FAMILIAR", f"Vínculo Familiar / Cônjuge de Agente Político ({cargo.title()})"
+                    return "FAMILIAR", f"Vínculo Familiar / Parentesco (Agente Político: {cargo.title()})"
                 else:
                     return "DIRETO", cargo.title()
 
