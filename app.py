@@ -776,7 +776,7 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
-# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS Nivelados ÀS EXTREMIDADES ---
+# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS NIVELADOS ÀS EXTREMIDADES ---
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
@@ -927,6 +927,19 @@ with st.sidebar:
 
     st.markdown("---")
     
+    # POLÍTICA DE PRIVACIDADE E TERMOS LGPD (MODAL / EXPANDER)
+    with st.expander("📜 Política de Privacidade e LGPD"):
+        st.caption("""
+            **Política de Tratamento de Dados Pessoais (LGPD - Lei 13.709/2018):**
+            
+            1. **Finalidade:** As consultas de CPF e análise de perfil público são realizadas estritamente para o cumprimento de obrigações legais de Prevenção à Lavagem de Dinheiro (PLD/FTP) e diretrizes da SUSEP e do COAF.
+            2. **Armazenamento:** Os registros de vencimentos são armazenados em banco de dados interno criptografado (Supabase) via conexões seguras SSL/TLS.
+            3. **Minimização:** O exibições públicas do CPF utilizam mascaramento parcial (`123.***.***-89`) para proteção contra vazamentos.
+            4. **Não Compartilhamento:** Os dados pesquisados não são comercializados ou compartilhados com terceiros não autorizados.
+        """)
+
+    st.markdown("---")
+
     opcoes_menu = [
         "🏛️ Consultas Receita Federal (PF/PJ)",
         "🔍 Consulta PLD/FTP", 
@@ -967,6 +980,9 @@ with st.sidebar:
         st.session_state.renovar_nome = ""
         st.session_state.renovar_cpf = ""
         st.rerun()
+
+    st.markdown("---")
+    st.caption("⚡ **Desenvolvido por Flávia Godoi**\n\n*BKS Compliance Tech & Inovação*")
 
 # =============================================================================
 # 🏛️ TELA 1: CONSULTAS RECEITA FEDERAL (PF / PJ)
