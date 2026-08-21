@@ -91,6 +91,20 @@ def gerar_hash_senha(senha: str) -> str:
     """Gera hash SHA-256 seguro para armazenamento de senhas."""
     return hashlib.sha256(senha.encode('utf-8')).hexdigest()
 
+def validar_complexidade_senha(senha: str):
+    """Valida se a senha atende aos requisitos mínimos de complexidade corporativa."""
+    if not senha or len(senha) < 8:
+        return False, "A senha deve conter no mínimo 8 dígitos."
+    if not re.search(r'[A-Z]', senha):
+        return False, "A senha deve conter pelo menos uma letra MAIÚSCULA."
+    if not re.search(r'[a-z]', senha):
+        return False, "A senha deve conter pelo menos uma letra MINÚSCULA."
+    if not re.search(r'[0-9]', senha):
+        return False, "A senha deve conter pelo menos um NÚMERO."
+    if not re.search(r'[^a-zA-Z0-9]', senha):
+        return False, "A senha deve conter pelo menos um CARACTERE ESPECIAL (ex: @, #, $, !, %, *)."
+    return True, ""
+
 def carregar_usuarios():
     """Carrega a lista de usuários mantendo a hierarquia corporativa."""
     usuarios = {}
@@ -767,8 +781,9 @@ if not st.session_state.autenticado:
                     confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password")
                     
                     if st.button("✅ Cadastrar Senha e Entrar", use_container_width=True):
-                        if not nova_senha or len(nova_senha) < 6:
-                            st.warning("A senha deve ter pelo menos 6 caracteres.")
+                        valida_comp, msg_comp = validar_complexidade_senha(nova_senha)
+                        if not valida_comp:
+                            st.warning(f"⚠️ {msg_comp}")
                         elif nova_senha != confirma_senha:
                             st.error("As senhas digitadas não conferem. Digite novamente.")
                         else:
@@ -829,11 +844,12 @@ with st.sidebar:
             hash_atual_input = gerar_hash_senha(senha_atual_in)
             
             senha_valida = (hash_banco_usr and hash_atual_input == hash_banco_usr) or (SENHA_GERAL and senha_atual_in == SENHA_GERAL)
+            valida_comp, msg_comp = validar_complexidade_senha(nova_senha_in)
             
             if not senha_valida:
                 st.error("❌ Senha atual incorreta.")
-            elif not nova_senha_in or len(nova_senha_in) < 6:
-                st.warning("⚠️ A nova senha deve conter no mínimo 6 caracteres.")
+            elif not valida_comp:
+                st.warning(f"⚠️ {msg_comp}")
             elif nova_senha_in != conf_senha_in:
                 st.error("❌ A confirmação não confere com a nova senha.")
             else:
@@ -1294,7 +1310,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 
         dados_filtrados = []
         for item in dados_processados:
-            # 1. Filtros de Status diretos
             if tipo_filtro == "🔴 Apenas Vencidos" and "🔴" not in item["Status do Prazo"]:
                 continue
             elif tipo_filtro == "🟡 Vencem em breve" and "🟡" not in item["Status do Prazo"]:
@@ -1302,7 +1317,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             elif tipo_filtro == "🟢 Apenas Válidos" and "🟢" not in item["Status do Prazo"]:
                 continue
 
-            # 2. Filtro por termo digitado conforme o campo selecionado
             if termo_busca.strip():
                 tb_norm = normalizar_texto(termo_busca)
                 tb_limpo_num = re.sub(r'\D', '', termo_busca)
