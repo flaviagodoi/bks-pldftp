@@ -817,6 +817,28 @@ with st.sidebar:
     st.markdown("---")
     
     st.markdown(f"📧 **Operador:** {st.session_state.email_logado}\n\n*(⭐ {cargo_usuario_logado})*")
+    
+    # --- MÓDULO RETRÁTIL: ALTERAR MINHA SENHA ---
+    with st.expander("🔑 Alterar Minha Senha"):
+        senha_atual_in = st.text_input("Senha Atual:", type="password", key="mudar_senha_atual")
+        nova_senha_in = st.text_input("Nova Senha:", type="password", key="mudar_senha_nova")
+        conf_senha_in = st.text_input("Confirmar Nova Senha:", type="password", key="mudar_senha_conf")
+        
+        if st.button("💾 Atualizar Senha", use_container_width=True, key="btn_salvar_nova_senha"):
+            hash_banco_usr, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
+            hash_atual_input = gerar_hash_senha(senha_atual_in)
+            
+            senha_valida = (hash_banco_usr and hash_atual_input == hash_banco_usr) or (SENHA_GERAL and senha_atual_in == SENHA_GERAL)
+            
+            if not senha_valida:
+                st.error("❌ Senha atual incorreta.")
+            elif not nova_senha_in or len(nova_senha_in) < 6:
+                st.warning("⚠️ A nova senha deve conter no mínimo 6 caracteres.")
+            elif nova_senha_in != conf_senha_in:
+                st.error("❌ A confirmação não confere com a nova senha.")
+            else:
+                if cadastrar_senha_usuario_banco(st.session_state.email_logado, nova_senha_in, cargo_usuario_logado):
+                    st.success("✅ Sua senha foi alterada com sucesso!")
         
     st.markdown("---")
     
@@ -1248,33 +1270,73 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         col_m4.metric("🔴 Vencidos / Expirados", vencidos)
 
         st.markdown("---")
-        st.subheader("🔍 Filtros de Busca")
+        st.subheader("🔍 Filtros Avançados de Busca")
 
-        col_f1, col_f2 = st.columns([1, 2])
+        col_f1, col_f2 = st.columns([1.5, 2])
         with col_f1:
-            filtro_status = st.selectbox(
-                "Filtrar por Status do Prazo:",
-                ["Todos", "🔴 Apenas Vencidos", "🟡 Vencem em breve", "🟢 Apenas Válidos"]
+            tipo_filtro = st.selectbox(
+                "Filtrar por Campo ou Status:",
+                [
+                    "Todos os Campos",
+                    "🔴 Apenas Vencidos",
+                    "🟡 Vencem em breve",
+                    "🟢 Apenas Válidos",
+                    "👤 Nome Completo",
+                    "📄 CPF",
+                    "🛡️ Status PEP",
+                    "📅 Data de Emissão",
+                    "⏰ Data de Vencimento",
+                    "📧 Operador"
+                ]
             )
         with col_f2:
-            termo_busca = st.text_input("Buscar por Nome ou CPF:", placeholder="Digite o nome ou CPF...")
+            termo_busca = st.text_input("Digite o termo para buscar:", placeholder="Digite nome, CPF, operador, data ou PEP...")
 
         dados_filtrados = []
         for item in dados_processados:
-            if filtro_status == "🔴 Apenas Vencidos" and "🔴" not in item["Status do Prazo"]:
+            # 1. Filtros de Status diretos
+            if tipo_filtro == "🔴 Apenas Vencidos" and "🔴" not in item["Status do Prazo"]:
                 continue
-            elif filtro_status == "🟡 Vencem em breve" and "🟡" not in item["Status do Prazo"]:
+            elif tipo_filtro == "🟡 Vencem em breve" and "🟡" not in item["Status do Prazo"]:
                 continue
-            elif filtro_status == "🟢 Apenas Válidos" and "🟢" not in item["Status do Prazo"]:
+            elif tipo_filtro == "🟢 Apenas Válidos" and "🟢" not in item["Status do Prazo"]:
                 continue
 
-            if termo_busca:
+            # 2. Filtro por termo digitado conforme o campo selecionado
+            if termo_busca.strip():
                 tb_norm = normalizar_texto(termo_busca)
-                nome_norm = normalizar_texto(item["Nome Completo"])
-                cpf_limpo = re.sub(r'\D', '', item["CPF_Real"])
-                tb_limpo = re.sub(r'\D', '', termo_busca)
-                if tb_norm not in nome_norm and (tb_limpo == "" or tb_limpo not in cpf_limpo):
-                    continue
+                tb_limpo_num = re.sub(r'\D', '', termo_busca)
+
+                if tipo_filtro == "👤 Nome Completo":
+                    if tb_norm not in normalizar_texto(item["Nome Completo"]):
+                        continue
+                elif tipo_filtro == "📄 CPF":
+                    cpf_limpo_item = re.sub(r'\D', '', item["CPF_Real"])
+                    if tb_limpo_num not in cpf_limpo_item and tb_norm not in normalizar_texto(item["CPF_Exibicao"]):
+                        continue
+                elif tipo_filtro == "🛡️ Status PEP":
+                    if tb_norm not in normalizar_texto(item["Status PEP"]):
+                        continue
+                elif tipo_filtro == "📅 Data de Emissão":
+                    if tb_norm not in normalizar_texto(item["Data de Emissão"]):
+                        continue
+                elif tipo_filtro == "⏰ Data de Vencimento":
+                    if tb_norm not in normalizar_texto(item["Data de Vencimento"]):
+                        continue
+                elif tipo_filtro == "📧 Operador":
+                    if tb_norm not in normalizar_texto(item["Operador"]):
+                        continue
+                elif tipo_filtro in ["Todos os Campos", "🔴 Apenas Vencidos", "🟡 Vencem em breve", "🟢 Apenas Válidos"]:
+                    in_nome = tb_norm in normalizar_texto(item["Nome Completo"])
+                    cpf_limpo_item = re.sub(r'\D', '', item["CPF_Real"])
+                    in_cpf = (tb_limpo_num != "" and tb_limpo_num in cpf_limpo_item) or tb_norm in normalizar_texto(item["CPF_Exibicao"])
+                    in_pep = tb_norm in normalizar_texto(item["Status PEP"])
+                    in_emis = tb_norm in normalizar_texto(item["Data de Emissão"])
+                    in_venc = tb_norm in normalizar_texto(item["Data de Vencimento"])
+                    in_oper = tb_norm in normalizar_texto(item["Operador"])
+
+                    if not (in_nome or in_cpf or in_pep or in_emis or in_venc or in_oper):
+                        continue
 
             dados_filtrados.append(item)
 
@@ -1284,25 +1346,27 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         if not dados_filtrados:
             st.warning("Nenhum registro localizado com os filtros selecionados.")
         else:
-            col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7 = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
+            col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7, col_h8 = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 0.8])
             with col_h1:
                 st.markdown("**👤 Nome Completo**")
             with col_h2:
                 st.markdown("**📄 CPF (LGPD)**")
             with col_h3:
-                st.markdown("**🛡️ Status PEP**")
+                st.markdown("**🛡️ PEP**")
             with col_h4:
-                st.markdown("**📅 Data Emissão**")
+                st.markdown("**📅 Emissão**")
             with col_h5:
-                st.markdown("**⏰ Data Vencimento**")
+                st.markdown("**⏰ Vencimento**")
             with col_h6:
                 st.markdown("**📌 Status Prazo**")
             with col_h7:
+                st.markdown("**📧 Operador**")
+            with col_h8:
                 st.markdown("**⚡ Ação**")
             st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
             for idx, item in enumerate(dados_filtrados):
-                c_n, c_c, c_p, c_e, c_v, c_s, c_b = st.columns([2.5, 1.3, 1, 1.5, 1.2, 1.2, 1])
+                c_n, c_c, c_p, c_e, c_v, c_s, c_o, c_b = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 0.8])
                 
                 with c_n:
                     st.write(f"**{item['Nome Completo']}**")
@@ -1316,6 +1380,8 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     st.write(item["Data de Vencimento"])
                 with c_s:
                     st.write(item["Status do Prazo"])
+                with c_o:
+                    st.write(f"`{item['Operador']}`")
                 with c_b:
                     if st.button("🔄 Renovar", key=f"btn_renovar_{idx}"):
                         st.session_state.renovar_nome = item["Nome Completo"]
