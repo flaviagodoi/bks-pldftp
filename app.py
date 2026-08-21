@@ -964,7 +964,7 @@ with st.sidebar:
         st.caption("""
             **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
             
-            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitucional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
+            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitutional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
             2. **Armazenamento Seguro:** O histórico de laudos e vencimentos é mantido em banco de dados corporativo criptografado (Supabase via SSL/TLS), sem armazenamento temporário em máquinas operacionais.
             3. **Minimização de Riscos:** As exibições públicas utilizam mascaramento parcial de CPF (`123.***.***-89`), reduzindo a exposição em conformidade com as diretrizes da ANPD.
             4. **Confidencialidade:** Os dados pesquisados destinam-se exclusivamente ao respaldo regulatório corporativo, sendo vedada a comercialização ou compartilhamento não autorizado.
@@ -981,11 +981,11 @@ with st.sidebar:
         st.session_state.renovar_cpf = ""
         st.rerun()
 
-    st.markdown("<br><hr style='margin-top:10px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
+    st.markdown("<br><hr style='margin-top:15px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
     st.markdown("""
-        <div style="text-align: center; margin-top: 10px; margin-bottom: 10px;">
-            <span style="font-size: 13px; font-weight: bold; color: #333333;">⚡ Desenvolvido por Flávia Godoi</span><br>
-            <span style="font-size: 11px; font-style: italic; color: #666666;">BKS Compliance Tech & Inovação</span>
+        <div style="text-align: center; margin-top: 15px; margin-bottom: 15px;">
+            <span style="font-size: 11px; color: #666666;">⚡ Desenvolvido por Flávia Godoi (08/2026)</span><br>
+            <span style="font-size: 11px; font-style: italic; color: #888888;">BKS Compliance Tech & Inovação</span>
         </div>
     """, unsafe_allow_html=True)
 
