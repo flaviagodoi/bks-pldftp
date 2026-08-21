@@ -1,5 +1,5 @@
 import streamlit as st
-import io, os, re, unicodedata, requests, csv
+import io, os, re, unicodedata, requests, csv, hashlib
 from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
 from duckduckgo_search import DDGS
@@ -14,6 +14,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
+# 🔐 BLINDAGEM DE CHAVES E SENHAS VIA STREAMLIT SECRETS (SEM SENHA EXPOSTA NO CODE)
+# -----------------------------------------------------------------------------
+SENHA_GERAL = st.secrets.get("SENHA_GERAL", "")
+
+# -----------------------------------------------------------------------------
 # 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE (POSTGRESQL)
 # -----------------------------------------------------------------------------
 def obter_conexao_banco():
@@ -26,7 +31,7 @@ def obter_conexao_banco():
     return None
 
 def inicializar_banco_supabase():
-    """Cria a tabela no Supabase automaticamente se ela ainda não existir."""
+    """Cria as tabelas no Supabase automaticamente se ainda não existirem."""
     engine = obter_conexao_banco()
     if engine:
         try:
@@ -44,6 +49,15 @@ def inicializar_banco_supabase():
                         data_vencimento_iso TEXT
                     );
                 '''))
+                
+                conn.execute(text('''
+                    CREATE TABLE IF NOT EXISTS usuarios_auth (
+                        email TEXT PRIMARY KEY,
+                        senha_hash TEXT,
+                        cargo TEXT,
+                        criado_em TEXT
+                    );
+                '''))
                 conn.commit()
         except Exception:
             pass
@@ -51,7 +65,7 @@ def inicializar_banco_supabase():
 inicializar_banco_supabase()
 
 # -----------------------------------------------------------------------------
-# 🔐 CONTROLE DE ACESSO, HIERARQUIA DE CARGOS E USUÁRIOS
+# 🔐 GERENCIAMENTO DE SENHAS INDIVIDUAIS E USUÁRIOS (SUPABASE + HASH)
 # -----------------------------------------------------------------------------
 CARGOS_NATIVOS = {
     "flavia.godoi@bks.com.br": "Administrador/Programador",
@@ -72,6 +86,10 @@ USUARIOS_PADRAO_NATIVOS = [
 ]
 
 ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
+
+def gerar_hash_senha(senha: str) -> str:
+    """Gera hash SHA-256 seguro para armazenamento de senhas."""
+    return hashlib.sha256(senha.encode('utf-8')).hexdigest()
 
 def carregar_usuarios():
     """Carrega a lista de usuários mantendo a hierarquia corporativa."""
@@ -105,11 +123,11 @@ def salvar_usuarios_csv(dict_usuarios):
             writer = csv.writer(f, delimiter=';')
             for email, cargo in dict_usuarios.items():
                 writer.writerow([email, cargo])
-    except Exception as e:
-        st.error(f"Erro ao salvar lista de usuários: {e}")
+    except Exception:
+        st.error("Erro interno ao atualizar permissões locais.")
 
 def adicionar_novo_usuario(email_input, cargo_escolhido):
-    """Adiciona um novo e-mail com o cargo definido."""
+    """Adiciona um novo e-mail para autorização."""
     email_clean = email_input.strip().lower()
     if not email_clean:
         return False, "O e-mail não pode estar em branco."
@@ -133,6 +151,16 @@ def remover_usuario(email_remover):
     if email_clean in dict_atual:
         del dict_atual[email_clean]
         salvar_usuarios_csv(dict_atual)
+        
+        engine = obter_conexao_banco()
+        if engine:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text("DELETE FROM usuarios_auth WHERE email = :email"), {"email": email_clean})
+                    conn.commit()
+            except Exception:
+                pass
+
         return True, f"Acesso do e-mail {email_clean} revogado com sucesso."
     return False, "Usuário não localizado."
 
@@ -143,6 +171,40 @@ def verificar_email_autorizado(email: str) -> bool:
     email_clean = email.strip().lower()
     dict_usuarios = carregar_usuarios()
     return email_clean in dict_usuarios or email_clean.endswith("@bks.com.br") or email_clean.endswith("@bksre.com.br")
+
+def buscar_senha_usuario_banco(email: str):
+    """Retorna o hash da senha e o cargo gravado no Supabase para o e-mail informado."""
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT senha_hash, cargo FROM usuarios_auth WHERE email = :email"), {"email": email.strip().lower()}).fetchone()
+                if res:
+                    return res[0], res[1]
+        except Exception:
+            pass
+    return None, None
+
+def cadastrar_senha_usuario_banco(email: str, senha_plana: str, cargo: str):
+    """Grava a senha individual criptografada no Supabase."""
+    senha_h = gerar_hash_senha(senha_plana)
+    criado_em = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text('''
+                    INSERT INTO usuarios_auth (email, senha_hash, cargo, criado_em)
+                    VALUES (:email, :senha_hash, :cargo, :criado_em)
+                    ON CONFLICT (email) DO UPDATE SET
+                        senha_hash = EXCLUDED.senha_hash,
+                        cargo = EXCLUDED.cargo;
+                '''), {"email": email.strip().lower(), "senha_hash": senha_h, "cargo": cargo, "criado_em": criado_em})
+                conn.commit()
+                return True
+        except Exception:
+            st.error("Erro ao salvar senha no banco seguro. Tente novamente.")
+    return False
 
 def eh_administrador(email: str) -> bool:
     """Retorna True se o e-mail logado tiver privilégios administrativos."""
@@ -215,10 +277,7 @@ def extrair_sufixo_familiar(palavras):
     return None
 
 def nomes_sao_compativeis(nome1, nome2):
-    """
-    Compara se dois nomes se referem ao mesmo indivíduo com flexibilidade,
-    mas bloqueia trocas entre Pai e Filho (Junior/Filho/Neto) ou pessoas distintas.
-    """
+    """Compara se dois nomes se referem ao mesmo indivíduo com flexibilidade."""
     n1 = normalizar_texto(nome1)
     n2 = normalizar_texto(nome2)
     if not n1 or not n2:
@@ -252,22 +311,17 @@ def nomes_sao_compativeis(nome1, nome2):
     return len(intersecao) >= 1
 
 def validar_coerencia_nome_cpf(nome_input, cpf_input):
-    """
-    Motor de Cross-Validation Seguro: Bloqueia divergências APENAS para CPFs completos de 11 dígitos
-    registrados no Supabase ou na Base Nativa.
-    """
+    """Motor de Cross-Validation Seguro para CPFs completos de 11 dígitos."""
     cpf_limpo = re.sub(r'\D', '', str(cpf_input))
     if len(cpf_limpo) != 11:
         return True, ""
 
-    # A. Checagem na BASE NATIVA (CPFs Conhecidos)
     for chave_nat, dados_nat in BASE_PEP_NATIVA.items():
         cpf_conhecido = dados_nat.get("cpf_conhecido", "")
         if cpf_conhecido and cpf_limpo == cpf_conhecido:
             if not nomes_sao_compativeis(nome_input, chave_nat):
                 return False, f"O CPF {formatar_cpf_estetico(cpf_input)} pertence a '{chave_nat}'. O nome digitado ({nome_input.upper()}) não corresponde a esta identidade."
 
-    # B. Checagem no Banco de Dados Supabase (CPF Completo)
     engine = obter_conexao_banco()
     if engine:
         try:
@@ -322,8 +376,8 @@ def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao
                     "data_vencimento_iso": dt_venc
                 })
                 conn.commit()
-        except Exception as e:
-            st.error(f"Erro ao salvar no Supabase: {e}")
+        except Exception:
+            st.error("Falha ao registrar vencimento no banco seguro.")
 
 def carregar_vencimentos():
     """Lê a lista completa de relatórios diretamente da nuvem do Supabase."""
@@ -398,9 +452,7 @@ def identificar_arquivo_pep():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """
-    Busca estrita na planilha da CGU (1ª Camada) utilizando NOME COMPLETO EXATO e miolo do CPF.
-    """
+    """Busca estrita na planilha da CGU utilizando NOME COMPLETO EXATO e miolo do CPF."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -452,9 +504,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
     return None
 
 def buscar_web_robusta(nome):
-    """
-    Busca flexível e abrangente de dados públicos na Wikipédia e buscadores Web.
-    """
+    """Busca flexível e abrangente de dados públicos na Wikipédia e buscadores Web."""
     texto_compilado = ""
     nome_limpo = nome.strip()
     nome_norm = normalizar_texto(nome_limpo)
@@ -508,10 +558,7 @@ def buscar_web_robusta(nome):
     return texto_compilado
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
-    """
-    Analisa a presença de cargos públicos e rastreia termos de parentesco (mãe, pai, filho, esposa)
-    para enquadramento automático como DIRETO ou FAMILIAR/INDIRETO.
-    """
+    """Analisa cargos públicos e rastreia termos de parentesco para enquadramento."""
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
 
@@ -564,19 +611,15 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     return None, None
 
 def verificar_pep_completo(nome_input, cpf_input):
-    """
-    Mecanismo Unificado que diferencia PEP DIRETO de PEP INDIRETO.
-    """
+    """Mecanismo Unificado que diferencia PEP DIRETO de PEP INDIRETO."""
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
-    # 0. Verificação na Base Nativa de Mapeamento Permanente
     nome_chave_upper = nome_norm.upper()
     for chave_nat, dados_nat in BASE_PEP_NATIVA.items():
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
-    # 1. Checagem Direta do Nome na Planilha da CGU
     match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_planilha:
         return {
@@ -587,7 +630,6 @@ def verificar_pep_completo(nome_input, cpf_input):
             "origem": f"Base Oficial de PEPs ({match_planilha['detalhe']})"
         }
 
-    # 2. Checagem Direta do Nome na Web
     texto_web_direto = buscar_web_robusta(nome_limpo)
     tipo_web, cargo_web = analisar_proximidade_cargo(texto_web_direto, nome_limpo)
     
@@ -610,7 +652,6 @@ def verificar_pep_completo(nome_input, cpf_input):
                 "origem": "Pesquisa em Portais Públicos e Notícias Web"
             }
 
-    # 3. Checagem por Vínculo de Parentesco (PEP INDIRETO: Junior, Filho, Neto, Sobrinho, Jr)
     sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
     palavras = nome_norm.split()
     
@@ -659,8 +700,6 @@ def verificar_pep_completo(nome_input, cpf_input):
 # -----------------------------------------------------------------------------
 # 🔑 CONFIGURAÇÃO DE ACESSO E AUTENTICAÇÃO
 # -----------------------------------------------------------------------------
-SENHA_GERAL = "Bks2026@"
-
 st.set_page_config(
     page_title="PLD/FTP - BKS Compliance", 
     page_icon="🛡️", 
@@ -704,6 +743,7 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
+# --- TELA DE LOGIN E PRIMEIRO ACESSO COM SENHA INDIVIDUAL ---
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
@@ -714,18 +754,43 @@ if not st.session_state.autenticado:
         st.markdown("---")
         
         email_digitado = st.text_input("📧 E-mail do Operador:", placeholder="seu.nome@bks.com.br").strip().lower()
-        senha_digitada = st.text_input("🔑 Senha de Acesso:", type="password")
         
-        if st.button("🔓 Entrar no Sistema", use_container_width=True):
-            if senha_digitada == SENHA_GERAL:
-                if verificar_email_autorizado(email_digitado):
-                    st.session_state.autenticado = True
-                    st.session_state.email_logado = email_digitado
-                    st.rerun()
-                else:
-                    st.error("⚠️ **Acesso Negado:** O e-mail informado não possui permissão de acesso. Contate um administrador de compliance.")
+        if email_digitado:
+            if not verificar_email_autorizado(email_digitado):
+                st.error("⚠️ **Acesso Negado:** O e-mail informado não possui permissão de acesso. Contate um administrador de compliance.")
             else:
-                st.error("❌ Senha incorreta! Verifique seus dados de acesso.")
+                senha_hash_banco, cargo_banco = buscar_senha_usuario_banco(email_digitado)
+                
+                if not senha_hash_banco:
+                    st.info("🆕 **Primeiro Acesso Detectado:** Crie sua senha de acesso individual abaixo.")
+                    nova_senha = st.text_input("🔑 Crie sua Nova Senha:", type="password")
+                    confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password")
+                    
+                    if st.button("✅ Cadastrar Senha e Entrar", use_container_width=True):
+                        if not nova_senha or len(nova_senha) < 6:
+                            st.warning("A senha deve ter pelo menos 6 caracteres.")
+                        elif nova_senha != confirma_senha:
+                            st.error("As senhas digitadas não conferem. Digite novamente.")
+                        else:
+                            cargo_usr = obter_cargo_usuario(email_digitado)
+                            if cadastrar_senha_usuario_banco(email_digitado, nova_senha, cargo_usr):
+                                st.success("Senha cadastrada com sucesso! Acessando o sistema...")
+                                st.session_state.autenticado = True
+                                st.session_state.email_logado = email_digitado
+                                st.rerun()
+                else:
+                    senha_digitada = st.text_input("🔑 Senha de Acesso Individual:", type="password")
+                    if st.button("🔓 Entrar no Sistema", use_container_width=True):
+                        hash_digitada = gerar_hash_senha(senha_digitada)
+                        if hash_digitada == senha_hash_banco or (SENHA_GERAL and senha_digitada == SENHA_GERAL):
+                            st.session_state.autenticado = True
+                            st.session_state.email_logado = email_digitado
+                            st.rerun()
+                        else:
+                            st.error("❌ Senha incorreta! Verifique seus dados de acesso.")
+        else:
+            st.caption("💡 *Digite seu e-mail institucional corporativo para habilitar a senha.*")
+
     st.stop()
 
 # -----------------------------------------------------------------------------
