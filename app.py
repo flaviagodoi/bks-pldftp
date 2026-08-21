@@ -785,13 +785,13 @@ if not st.session_state.autenticado:
         bks_b64 = obter_base64_imagem("logo_bks.png")
         bksre_b64 = obter_base64_imagem("logo_bksre.png")
         
-        img_bks_html = f'<img src="data:image/png;base64,{bks_b64}" style="height: 50px; object-fit: contain;">' if bks_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS CORRETORA</span>'
-        img_bksre_html = f'<img src="data:image/png;base64,{bksre_b64}" style="height: 50px; object-fit: contain;">' if bksre_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS RE RESSEGUROS</span>'
+        img_bks_html = f'<img src="data:image/png;base64,{bks_b64}" style="height: 75px; max-width: 220px; object-fit: contain;">' if bks_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS CORRETORA</span>'
+        img_bksre_html = f'<img src="data:image/png;base64,{bksre_b64}" style="height: 75px; max-width: 220px; object-fit: contain;">' if bksre_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS RE RESSEGUROS</span>'
         
         st.markdown(f'''
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 15px;">
-                <div>{img_bks_html}</div>
-                <div>{img_bksre_html}</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 20px;">
+                <div style="text-align: left;">{img_bks_html}</div>
+                <div style="text-align: right;">{img_bksre_html}</div>
             </div>
         ''', unsafe_allow_html=True)
 
