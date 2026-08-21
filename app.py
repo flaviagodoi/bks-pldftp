@@ -926,19 +926,6 @@ with st.sidebar:
                     st.rerun()
 
     st.markdown("---")
-    
-    # POLÍTICA DE PRIVACIDADE E TERMOS LGPD (MODAL / EXPANDER)
-    with st.expander("📜 Política de Privacidade e LGPD"):
-        st.caption("""
-            **Política de Tratamento de Dados Pessoais (LGPD - Lei 13.709/2018):**
-            
-            1. **Finalidade:** As consultas de CPF e análise de perfil público são realizadas estritamente para o cumprimento de obrigações legais de Prevenção à Lavagem de Dinheiro (PLD/FTP) e diretrizes da SUSEP e do COAF.
-            2. **Armazenamento:** Os registros de vencimentos são armazenados em banco de dados interno criptografado (Supabase) via conexões seguras SSL/TLS.
-            3. **Minimização:** O exibições públicas do CPF utilizam mascaramento parcial (`123.***.***-89`) para proteção contra vazamentos.
-            4. **Não Compartilhamento:** Os dados pesquisados não são comercializados ou compartilhados com terceiros não autorizados.
-        """)
-
-    st.markdown("---")
 
     opcoes_menu = [
         "🏛️ Consultas Receita Federal (PF/PJ)",
@@ -971,6 +958,19 @@ with st.sidebar:
         st.info("🌐 **Base PEP Local:** Não enc. (Modo Web Ativo)")
 
     st.markdown("---")
+
+    # POLÍTICA DE PRIVACIDADE E TERMOS LGPD / EC 115 / ANPD / SUSEP
+    with st.expander("📜 Política de Privacidade e LGPD"):
+        st.caption("""
+            **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
+            
+            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitucional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
+            2. **Armazenamento Seguro:** O histórico de laudos e vencimentos é mantido em banco de dados corporativo criptografado (Supabase via SSL/TLS), sem armazenamento temporário em máquinas operacionais.
+            3. **Minimização de Riscos:** As exibições públicas utilizam mascaramento parcial de CPF (`123.***.***-89`), reduzindo a exposição em conformidade com as diretrizes da ANPD.
+            4. **Confidencialidade:** Os dados pesquisados destinam-se exclusivamente ao respaldo regulatório corporativo, sendo vedada a comercialização ou compartilhamento não autorizado.
+        """)
+
+    st.markdown("<br>", unsafe_allow_html=True)
     
     if st.button("🔒 Sair do Sistema", use_container_width=True):
         st.session_state.autenticado = False
@@ -981,8 +981,13 @@ with st.sidebar:
         st.session_state.renovar_cpf = ""
         st.rerun()
 
-    st.markdown("---")
-    st.caption("⚡ **Desenvolvido por Flávia Godoi**\n\n*BKS Compliance Tech & Inovação*")
+    st.markdown("<br><hr style='margin-top:10px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
+    st.markdown("""
+        <div style="text-align: center; margin-top: 10px; margin-bottom: 10px;">
+            <span style="font-size: 13px; font-weight: bold; color: #333333;">⚡ Desenvolvido por Flávia Godoi</span><br>
+            <span style="font-size: 11px; font-style: italic; color: #666666;">BKS Compliance Tech & Inovação</span>
+        </div>
+    """, unsafe_allow_html=True)
 
 # =============================================================================
 # 🏛️ TELA 1: CONSULTAS RECEITA FEDERAL (PF / PJ)
