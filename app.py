@@ -227,13 +227,11 @@ def nomes_sao_compativeis(nome1, nome2):
     p1 = n1.split()
     p2 = n2.split()
 
-    # 1. Trava Estrita de Sufixo Familiar (Diferencia Pai de Filho/Junior)
     suf1 = extrair_sufixo_familiar(p1)
     suf2 = extrair_sufixo_familiar(p2)
     if suf1 != suf2:
-        return False  # Um é Junior/Filho e o outro não -> Pessoas Diferentes!
+        return False
 
-    # Remove preposições e sufixos já validados
     ignorar = {"de", "da", "do", "das", "dos", "e", "junior", "jr", "filho", "neto", "sobrinho"}
     w1 = [w for w in p1 if w not in ignorar]
     w2 = [w for w in p2 if w not in ignorar]
@@ -241,11 +239,9 @@ def nomes_sao_compativeis(nome1, nome2):
     if not w1 or not w2:
         return True
 
-    # Primeiro nome precisa ser idêntico
     if w1[0] != w2[0]:
         return False
 
-    # Verifica se há pelo menos um sobrenome idêntico em comum
     set1 = set(w1[1:]) if len(w1) > 1 else set(w1)
     set2 = set(w2[1:]) if len(w2) > 1 else set(w2)
 
@@ -257,21 +253,21 @@ def nomes_sao_compativeis(nome1, nome2):
 
 def validar_coerencia_nome_cpf(nome_input, cpf_input):
     """
-    Motor de Cross-Validation: Garante que o CPF informado corresponda ao nome digitado,
-    bloqueando tentativas de vincular o CPF de uma pessoa ao nome de outra.
+    Motor de Cross-Validation Seguro: Bloqueia divergências APENAS para CPFs completos de 11 dígitos
+    registrados no Supabase ou na Base Nativa.
     """
     cpf_limpo = re.sub(r'\D', '', str(cpf_input))
     if len(cpf_limpo) != 11:
         return True, ""
 
-    # A. Checagem na BASE NATIVA
+    # A. Checagem na BASE NATIVA (CPFs Conhecidos)
     for chave_nat, dados_nat in BASE_PEP_NATIVA.items():
         cpf_conhecido = dados_nat.get("cpf_conhecido", "")
         if cpf_conhecido and cpf_limpo == cpf_conhecido:
             if not nomes_sao_compativeis(nome_input, chave_nat):
                 return False, f"O CPF {formatar_cpf_estetico(cpf_input)} pertence a '{chave_nat}'. O nome digitado ({nome_input.upper()}) não corresponde a esta identidade."
 
-    # B. Checagem no Banco de Dados Supabase
+    # B. Checagem no Banco de Dados Supabase (CPF Completo)
     engine = obter_conexao_banco()
     if engine:
         try:
@@ -281,26 +277,6 @@ def validar_coerencia_nome_cpf(nome_input, cpf_input):
                     nome_banco = res[0]
                     if not nomes_sao_compativeis(nome_input, nome_banco):
                         return False, f"O CPF {formatar_cpf_estetico(cpf_input)} já possui laudo registrado no sistema para '{nome_banco}'. O nome informado ({nome_input.upper()}) é incompatível."
-        except Exception:
-            pass
-
-    # C. Checagem com a Planilha da CGU
-    caminho_cgu = identificar_arquivo_pep()
-    if caminho_cgu:
-        miolo_cpf = cpf_limpo[3:9]
-        try:
-            with open(caminho_cgu, mode='r', encoding='utf-8', errors='ignore') as f:
-                primeira_linha = f.readline()
-                sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
-                f.seek(0)
-                reader = csv.DictReader(f, delimiter=sep)
-                for row in reader:
-                    cpf_row = (row.get('CPF') or row.get('Cpf') or row.get('CPF_PEP') or "")
-                    cpf_row_nums = re.sub(r'\D', '', cpf_row)
-                    if miolo_cpf and len(cpf_row_nums) >= 6 and miolo_cpf in cpf_row_nums:
-                        nome_cgu = (row.get('Nome_PEP') or row.get('NOME_PEP') or row.get('Nome') or "")
-                        if nome_cgu and not nomes_sao_compativeis(nome_input, nome_cgu):
-                            return False, f"O CPF informado consta na base oficial da CGU registrado para '{nome_cgu}'. O nome digitado ({nome_input.upper()}) não é compatível."
         except Exception:
             pass
 
@@ -394,6 +370,16 @@ BASE_PEP_NATIVA = {
         "orgao": "Administração Pública (Vínculo Familiar de 1º Grau)",
         "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto (Gaudêncio Lucena)",
         "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Gaudêncio Lucena)"
+    },
+    "SHIGEAKI MARACAJA RAMOS": {
+        "tipo": "FAMILIAR",
+        "sufixo": "PARENTESCO",
+        "cpf_conhecido": "02409509410",
+        "nome_parente": "Estela Maracajá Ramos",
+        "cargo": "Vínculo Familiar de 1º Grau (Filho de Agente Político Exposto: Vice-Prefeita de São João do Cariri)",
+        "orgao": "Administração Pública / Poder Executivo Municipal",
+        "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto (Estela Maracajá)",
+        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Estela Maracajá)"
     }
 }
 
@@ -467,78 +453,64 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
 def buscar_web_robusta(nome):
     """
-    Busca flexível e tolerante a acentos na Wikipédia e buscadores públicos.
+    Busca flexível e abrangente de dados públicos na Wikipédia e buscadores Web.
     """
     texto_compilado = ""
     nome_limpo = nome.strip()
     nome_norm = normalizar_texto(nome_limpo)
     partes = nome_norm.split()
     
-    variantes = [nome_limpo]
+    queries = [
+        f'"{nome_limpo}"',
+        f'"{nome_limpo}" politico OR prefeita OR prefeito OR vice OR mae OR pai'
+    ]
     if len(partes) >= 3:
-        variantes.append(f"{partes[0]} {partes[-1]}")
-        variantes.append(f"{partes[0]} {partes[-2]} {partes[-1]}")
+        queries.append(f'"{partes[0]} {partes[-1]}" politico OR prefeita OR vice')
 
-    for var in variantes:
+    for q in queries:
         try:
             url_wiki = "https://pt.wikipedia.org/w/api.php"
             params_search = {
                 "action": "query",
                 "list": "search",
-                "srsearch": var,
+                "srsearch": q,
                 "format": "json"
             }
-            res = requests.get(url_wiki, params=params_search, timeout=5).json()
+            res = requests.get(url_wiki, params=params_search, timeout=4).json()
             search_hits = res.get("query", {}).get("search", [])
-            
-            for hit in search_hits[:4]:
+            for hit in search_hits[:3]:
                 snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
                 texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
-                
-            if search_hits:
-                primeiro_titulo = search_hits[0].get("title")
-                params_ext = {
-                    "action": "query",
-                    "format": "json",
-                    "prop": "extracts",
-                    "exintro": True,
-                    "explaintext": True,
-                    "titles": primeiro_titulo
-                }
-                res_ext = requests.get(url_wiki, params_ext, timeout=5).json()
-                pages = res_ext.get("query", {}).get("pages", {})
-                for p_id, p_data in pages.items():
-                    if p_id != "-1":
-                        texto_compilado += f" {p_data.get('extract', '')}"
         except Exception:
             pass
 
-    try:
-        url_ddg = "https://html.duckduckgo.com/html/"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        data = {"q": f'{nome_limpo} politico vice prefeito senador partido diretorio executiva'}
-        resp = requests.post(url_ddg, data=data, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
-            for snip in snippets:
-                snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
-                texto_compilado += f" {snippet_limpo}"
-    except Exception:
-        pass
+        try:
+            url_ddg = "https://html.duckduckgo.com/html/"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            data = {"q": q}
+            resp = requests.post(url_ddg, data=data, headers=headers, timeout=4)
+            if resp.status_code == 200:
+                snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
+                for snip in snippets:
+                    snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
+                    texto_compilado += f" {snippet_limpo}"
+        except Exception:
+            pass
 
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(f'{nome_limpo} politico vice prefeito senador partido diretorio executiva', max_results=4))
-            for r in results:
-                texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
-    except Exception:
-        pass
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(q, max_results=3))
+                for r in results:
+                    texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
+        except Exception:
+            pass
 
     return texto_compilado
 
 def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     """
-    Analisa a presença de cargos públicos e posições executivas/diretórios de partidos políticos (Regra COAF/BCB).
+    Analisa a presença de cargos públicos e rastreia termos de parentesco (mãe, pai, filho, esposa)
+    para enquadramento automático como DIRETO ou FAMILIAR/INDIRETO.
     """
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
@@ -548,14 +520,25 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
 
     cargos_pep = [
         "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
-        "prefeito", "prefeita", "vice prefeito", "vice governadora", "ministro", "ministra", 
+        "prefeito", "prefeita", "vice prefeito", "vice prefeita", "vice governadora", "ministro", "ministra", 
         "desembargador", "desembargadora", "juiz", "juiza", "juiz federal", "procurador", 
         "procuradora", "secretario", "secretaria", "vereador", "vereadora", "magistrado", 
         "magistrada", "parlamentar", "ex ministro", "ex senador", "ex deputado", "ex governador", 
-        "ex prefeito", "politico", "politica", "suplente", "candidato", "vice",
+        "ex prefeito", "politico", "politica", "suplente", "candidato", "candidata", "vice",
         "diretorio nacional", "diretorio estadual", "executiva nacional", "executiva estadual",
         "presidente de partido", "presidente partidario", "dirigente partidario",
         "membro da executiva", "membro do diretorio", "partido politico"
+    ]
+
+    termos_parentesco = [
+        "filho do", "filho da", "filho de", "filha do", "filha da", "filha de",
+        "esposa do", "esposa da", "esposa de", "esposo do", "esposo de",
+        "conjuge do", "conjuge de", "marido do", "marido de",
+        "mulher do", "mulher de", "casado com", "casada com",
+        "neto do", "neto de", "neta do", "neta de",
+        "sobrinho do", "sobrinho de", "sobrinha do", "sobrinha de",
+        "herdeiro do", "herdeiro de", "pai do", "pai de", "mae do", "mae de",
+        "irmao do", "irmao de", "irma do", "irma de", "parente de", "parente do"
     ]
 
     partes = nome_norm.split()
@@ -573,6 +556,9 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
 
             for cargo in cargos_pep:
                 if cargo in trecho:
+                    tem_relacao = any(rel in trecho for rel in termos_parentesco)
+                    if tem_relacao:
+                        return "FAMILIAR", cargo.title()
                     return "DIRETO", cargo.title()
 
     return None, None
@@ -606,13 +592,23 @@ def verificar_pep_completo(nome_input, cpf_input):
     tipo_web, cargo_web = analisar_proximidade_cargo(texto_web_direto, nome_limpo)
     
     if cargo_web:
-        return {
-            "tipo": "DIRETO",
-            "cargo": f"Agente Político / Exposição Direta ({cargo_web})",
-            "orgao": "Administração Pública / Órgão Partidário",
-            "detalhe": "Histórico Mapeado em Fontes Públicas e Notícias Web",
-            "origem": "Pesquisa em Portais Públicos e Notícias Web"
-        }
+        if tipo_web == "FAMILIAR":
+            return {
+                "tipo": "FAMILIAR",
+                "sufixo": "PARENTESCO",
+                "cargo": f"Vínculo Familiar de 1º Grau (Parentesco com Agente Político Exposto: {cargo_web})",
+                "orgao": "Administração Pública / Registro Histórico",
+                "detalhe": "Vínculo Direto de Parentesco com Agente Político Mapeado na Web",
+                "origem": "Mapeamento de Vínculos Familiares em Fontes Públicas"
+            }
+        else:
+            return {
+                "tipo": "DIRETO",
+                "cargo": f"Agente Político / Exposição Direta ({cargo_web})",
+                "orgao": "Administração Pública / Órgão Partidário",
+                "detalhe": "Histórico Mapeado em Fontes Públicas e Notícias Web",
+                "origem": "Pesquisa em Portais Públicos e Notícias Web"
+            }
 
     # 3. Checagem por Vínculo de Parentesco (PEP INDIRETO: Junior, Filho, Neto, Sobrinho, Jr)
     sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
@@ -1101,32 +1097,32 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         ("PRÓXIMA ATUALIZACAO RECOMENDADA", PROXIMA_ATUALIZACAO)
                     ])
 
-                story.append(Spacer(1, 16))
-                disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
-                story.append(Paragraph(disclaimer_txt, style_disclaimer))
-                story.append(Spacer(1, 10))
-                
-                hora_agora_bsb = agora_dt.strftime('%d/%m/%Y às %H:%M:%S')
-                story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
+                    story.append(Spacer(1, 16))
+                    disclaimer_txt = "Os dados de terceiros foram obtidos de fontes consideradas confiáveis, mas não nos responsabilizamos por eventuais erros, omissões ou desatualizações presentes na origem das informações."
+                    story.append(Paragraph(disclaimer_txt, style_disclaimer))
+                    story.append(Spacer(1, 10))
+                    
+                    hora_agora_bsb = agora_dt.strftime('%d/%m/%Y às %H:%M:%S')
+                    story.append(Paragraph(f"<b>Relatório emitido em:</b> {hora_agora_bsb}", style_date))
 
-                def add_footer(canvas, doc):
-                    canvas.saveState()
-                    ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
-                    canvas.setFont("Helvetica", 7)
-                    canvas.setFillColor(colors.HexColor('#777777'))
-                    canvas.drawCentredString(A4[0] / 2.0, 20, ft_text)
-                    canvas.restoreState()
+                    def add_footer(canvas, doc):
+                        canvas.saveState()
+                        ft_text = "Documento gerado pelo sistema interno de Compliance - BKS Corretora de Seguros Ltda. & BKS Re Corretora de Resseguros Ltda."
+                        canvas.setFont("Helvetica", 7)
+                        canvas.setFillColor(colors.HexColor('#777777'))
+                        canvas.drawCentredString(A4[0] / 2.0, 20, ft_text)
+                        canvas.restoreState()
 
-                doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
-                pdf_bytes = buffer.getvalue()
+                    doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
+                    pdf_bytes = buffer.getvalue()
 
-                st.download_button(
-                    label="📥 Baixar Relatório PDF Oficial (BKS / BKS Re)",
-                    data=pdf_bytes,
-                    file_name=f"Relatorio_PLD_{nome_input.replace(' ', '_').upper()}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+                    st.download_button(
+                        label="📥 Baixar Relatório PDF Oficial (BKS / BKS Re)",
+                        data=pdf_bytes,
+                        file_name=f"Relatorio_PLD_{nome_input.replace(' ', '_').upper()}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
 
 # =============================================================================
 # 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS
