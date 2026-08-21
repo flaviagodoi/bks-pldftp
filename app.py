@@ -735,7 +735,7 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
-# --- ESTILIZAÇÃO CSS CONDICIONAL (TELA INICIAL = 100% | TELAS INTERNAS = 82% COMPACTAS) ---
+# --- ESTILIZAÇÃO CSS CONDICIONAL (TELA INICIAL = 100% | TELAS INTERNAS = 82% COMPACTAS + QUADRINHOS CINZA MÉDIO DESTACADOS) ---
 if st.session_state.autenticado:
     st.markdown("""
         <style>
@@ -765,19 +765,39 @@ if st.session_state.autenticado:
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
 
-        /* Estilização dos Expanders da Gestão de Usuários (Fundo Cinza Médio) */
-        div.expander-cinza div[data-testid="stExpander"] {
-            background-color: #e9ecef !important;
-            border: 1px solid #ced4da !important;
+        /* Estilização Rígida e Direta dos Expanders (Fundo Cinza Médio Estilo Engrenagem #d8dee4 / #cdd5df + Fonte 2 Níveis Maior) */
+        div[data-testid="stExpander"] {
+            background-color: #d8dee4 !important;
+            border: 1px solid #b0bac5 !important;
             border-radius: 8px !important;
-            margin-bottom: 12px !important;
+            margin-bottom: 16px !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.06) !important;
         }
-        div.expander-cinza div[data-testid="stExpander"] summary {
-            background-color: #dee2e6 !important;
-            border-radius: 6px !important;
-            font-weight: bold !important;
-            color: #212529 !important;
-            padding: 10px !important;
+        div[data-testid="stExpander"] summary {
+            background-color: #cdd5df !important;
+            border-radius: 7px !important;
+            padding: 14px 20px !important;
+            min-height: 56px !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+        div[data-testid="stExpander"] summary:hover {
+            background-color: #bdc8d4 !important;
+        }
+        div[data-testid="stExpander"] summary p, 
+        div[data-testid="stExpander"] summary span,
+        div[data-testid="stExpander"] summary div,
+        div[data-testid="stExpander"] summary label {
+            font-size: 1.35rem !important;
+            font-weight: 700 !important;
+            color: #111827 !important;
+        }
+        div[data-testid="stExpanderDetails"] {
+            background-color: #f1f4f6 !important;
+            padding: 20px !important;
+            border-top: 1px solid #b0bac5 !important;
+            border-bottom-left-radius: 8px !important;
+            border-bottom-right-radius: 8px !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -1541,7 +1561,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             )
 
 # =============================================================================
-# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS E PERMISSÕES (COM EXPANDERS CINZA MÉDIO)
+# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS E PERMISSÕES (COM QUADRINHOS DESTACADOS EM CINZA MÉDIO ESTILO ENGRENAGEM)
 # =============================================================================
 elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.title("⚙️ Gerenciador de Usuários e Segurança de Acesso")
@@ -1549,9 +1569,6 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.markdown("<br>", unsafe_allow_html=True)
 
     dict_usuarios = carregar_usuarios()
-
-    # Envolvente CSS para Fundo Cinza Médio nos Expanders
-    st.markdown('<div class="expander-cinza">', unsafe_allow_html=True)
 
     # --- ÁREA EXCLUSIVA DE ADMINISTRADOR ---
     if eh_admin:
@@ -1668,5 +1685,3 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
                     else:
                         st.caption("🔒 Leitura")
                 st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #d0d7de;'>", unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
