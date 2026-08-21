@@ -766,7 +766,7 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
-# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS DUPLOS E FLUXO EM 2 ETAPAS ---
+# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS DUPLOS PROPORCIONAIS ---
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
@@ -774,12 +774,12 @@ if not st.session_state.autenticado:
         col_lg1, col_lg2 = st.columns(2)
         with col_lg1:
             if os.path.exists("logo_bks.png"):
-                st.image("logo_bks.png", use_container_width=True)
+                st.image("logo_bks.png", width=180)
             else:
                 st.caption("BKS Corretora")
         with col_lg2:
             if os.path.exists("logo_bksre.png"):
-                st.image("logo_bksre.png", use_container_width=True)
+                st.image("logo_bksre.png", width=180)
             else:
                 st.caption("BKS Re Resseguros")
 
@@ -800,12 +800,12 @@ if not st.session_state.autenticado:
                     st.session_state.login_email_confirmado = email_digitado_input
                     st.rerun()
         else:
-            # Etapa 2: Exibir E-mail Confirmado + Campo de Senha
+            # Etapa 2: Exibir E-mail Confirmado em Fonte Normal + Campo de Senha
             email_atual = st.session_state.login_email_confirmado
             
             col_usr1, col_usr2 = st.columns([3, 1])
             with col_usr1:
-                st.markdown(f"👤 **E-mail:** `{email_atual}`")
+                st.markdown(f"📧 **E-mail informado:** {email_atual}")
             with col_usr2:
                 if st.button("✏️ Alterar"):
                     st.session_state.login_email_confirmado = None
@@ -1481,32 +1481,50 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
         
         st.markdown("---")
 
-        # MÓDULO 2: Redefinição Centralizada de Senha por ADM
+        # MÓDULO 2: Redefinição Centralizada de Senha por ADM via Formulário Seguro
         st.subheader("🔑 Gestão e Redefinição de Senhas (ADM)")
-        st.caption("Altere a senha de qualquer operador registrado. A nova senha deve cumprir os requisitos corporativos de segurança.")
+        st.caption("Altere a senha de qualquer operador registrado. É necessário informar a sua senha atual para autorizar.")
         
         lista_emails_autorizados = sorted(list(dict_usuarios.keys()))
         
-        col_reset1, col_reset2, col_reset3 = st.columns([2, 1.5, 1.5])
-        with col_reset1:
-            email_alvo_reset = st.selectbox("Selecione o E-mail do Usuário:", lista_emails_autorizados)
-        with col_reset2:
-            nova_senha_adm = st.text_input("Nova Senha Corporativa:", type="password", key="input_senha_adm_nova")
-        with col_reset3:
-            confirma_senha_adm = st.text_input("Confirmar Nova Senha:", type="password", key="input_senha_adm_conf")
+        with st.form("form_redefinir_senha_adm"):
+            col_reset1, col_reset2 = st.columns(2)
+            with col_reset1:
+                email_alvo_reset = st.selectbox("Selecione o E-mail do Usuário:", lista_emails_autorizados)
+                senha_atual_adm = st.text_input("Sua Senha Atual (ADM):", type="password")
+            with col_reset2:
+                nova_senha_adm = st.text_input("Nova Senha Corporativa:", type="password")
+                confirma_senha_adm = st.text_input("Confirmar Nova Senha:", type="password")
+                
+            btn_salvar_senha_adm = st.form_submit_button("💾 Redefinir Senha", use_container_width=True)
             
-        if st.button("💾 Redefinir Senha do Usuário", use_container_width=True):
-            valida_comp, msg_comp = validar_complexidade_senha(nova_senha_adm)
-            if not nova_senha_adm:
-                st.warning("⚠️ Digite a nova senha antes de salvar.")
-            elif not valida_comp:
-                st.warning(f"⚠️ {msg_comp}")
-            elif nova_senha_adm.strip() != confirma_senha_adm.strip():
-                st.error("❌ As senhas digitadas não conferem. Digite novamente.")
-            else:
-                cargo_alvo = dict_usuarios.get(email_alvo_reset, "Operador")
-                if cadastrar_senha_usuario_banco(email_alvo_reset, nova_senha_adm.strip(), cargo_alvo):
-                    st.success(f"✅ Senha do usuário **{email_alvo_reset}** redefinida com sucesso pelo Administrador!")
+            if btn_salvar_senha_adm:
+                hash_atual = gerar_hash_senha(senha_atual_adm)
+                hash_banco_executor, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
+                hash_sessao = st.session_state.get("senha_hash_logada", "")
+                
+                senha_atual_ok = (
+                    (hash_sessao and hash_atual == hash_sessao) or
+                    (hash_banco_executor and hash_atual == hash_banco_executor) or
+                    (SENHA_GERAL and senha_atual_adm.strip() == SENHA_GERAL)
+                )
+                
+                valida_comp, msg_comp = validar_complexidade_senha(nova_senha_adm)
+                
+                if not senha_atual_adm.strip():
+                    st.warning("⚠️ Digite sua senha atual para autorizar a alteração.")
+                elif not senha_atual_ok:
+                    st.error("❌ Senha atual incorreta.")
+                elif not nova_senha_adm.strip():
+                    st.warning("⚠️ Digite a nova senha antes de salvar.")
+                elif not valida_comp:
+                    st.warning(f"⚠️ {msg_comp}")
+                elif nova_senha_adm.strip() != confirma_senha_adm.strip():
+                    st.error("❌ As senhas digitadas não conferem. Digite novamente.")
+                else:
+                    cargo_alvo = dict_usuarios.get(email_alvo_reset, "Operador")
+                    if cadastrar_senha_usuario_banco(email_alvo_reset, nova_senha_adm.strip(), cargo_alvo):
+                        st.success(f"✅ Senha do usuário **{email_alvo_reset}** redefinida com sucesso pelo Administrador!")
         
         st.markdown("---")
 
