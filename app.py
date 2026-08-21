@@ -1,5 +1,5 @@
 import streamlit as st
-import io, os, re, unicodedata, requests, csv, hashlib
+import io, os, re, unicodedata, requests, csv, hashlib, base64
 from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
 from duckduckgo_search import DDGS
@@ -17,6 +17,16 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 # 🔐 BLINDAGEM DE CHAVES E SENHAS VIA STREAMLIT SECRETS (SEM SENHA EXPOSTA NO CODE)
 # -----------------------------------------------------------------------------
 SENHA_GERAL = st.secrets.get("SENHA_GERAL", "")
+
+def obter_base64_imagem(caminho_imagem):
+    """Converte arquivo de imagem local para Base64 permitindo alinhamento CSS fluido."""
+    if caminho_imagem and os.path.exists(caminho_imagem):
+        try:
+            with open(caminho_imagem, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+        except Exception:
+            pass
+    return None
 
 # -----------------------------------------------------------------------------
 # 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE (POSTGRESQL)
@@ -766,22 +776,24 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
-# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS DUPLOS PROPORCIONAIS ---
+# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS Nivelados ÀS EXTREMIDADES ---
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
         st.markdown("<br>", unsafe_allow_html=True)
-        col_lg1, col_lg2 = st.columns(2)
-        with col_lg1:
-            if os.path.exists("logo_bks.png"):
-                st.image("logo_bks.png", width=180)
-            else:
-                st.caption("BKS Corretora")
-        with col_lg2:
-            if os.path.exists("logo_bksre.png"):
-                st.image("logo_bksre.png", width=180)
-            else:
-                st.caption("BKS Re Resseguros")
+        
+        bks_b64 = obter_base64_imagem("logo_bks.png")
+        bksre_b64 = obter_base64_imagem("logo_bksre.png")
+        
+        img_bks_html = f'<img src="data:image/png;base64,{bks_b64}" style="height: 50px; object-fit: contain;">' if bks_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS CORRETORA</span>'
+        img_bksre_html = f'<img src="data:image/png;base64,{bksre_b64}" style="height: 50px; object-fit: contain;">' if bksre_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS RE RESSEGUROS</span>'
+        
+        st.markdown(f'''
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 15px;">
+                <div>{img_bks_html}</div>
+                <div>{img_bksre_html}</div>
+            </div>
+        ''', unsafe_allow_html=True)
 
         st.title("🛡️ Acesso ao Painel PLD/FTP")
         st.caption("Sistema de Conformidade e Prevenção à Lavagem de Dinheiro")
@@ -878,38 +890,40 @@ with st.sidebar:
 
     # --- MÓDULO RETRÁTIL: ALTERAR MINHA PRÓPRIA SENHA (QUALQUER USUÁRIO) ---
     with st.expander("🔑 Alterar Minha Senha", expanded=False):
-        with st.form("form_mudar_senha_propria_user"):
-            senha_atual_propria = st.text_input("Sua Senha Atual:", type="password")
-            nova_senha_propria = st.text_input("Nova Senha:", type="password")
-            conf_senha_propria = st.text_input("Confirmar Nova Senha:", type="password")
+        senha_atual_propria = st.text_input("Sua Senha Atual:", type="password", key="input_senha_atual_p")
+        nova_senha_propria = st.text_input("Nova Senha:", type="password", key="input_nova_senha_p")
+        conf_senha_propria = st.text_input("Confirmar Nova Senha:", type="password", key="input_conf_senha_p")
+        
+        if st.button("💾 Salvar Nova Senha", use_container_width=True, key="btn_salvar_senha_propria"):
+            hash_atual_in = gerar_hash_senha(senha_atual_propria)
+            hash_banco_usr, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
+            hash_sessao = st.session_state.get("senha_hash_logada", "")
             
-            btn_salvar_propria = st.form_submit_button("💾 Salvar Nova Senha", use_container_width=True)
+            senha_ok = (
+                (hash_sessao and hash_atual_in == hash_sessao) or
+                (hash_banco_usr and hash_atual_in == hash_banco_usr) or
+                (SENHA_GERAL and senha_atual_propria.strip() == SENHA_GERAL)
+            )
+            valida_comp, msg_comp = validar_complexidade_senha(nova_senha_propria)
             
-            if btn_salvar_propria:
-                hash_atual_in = gerar_hash_senha(senha_atual_propria)
-                hash_banco_usr, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
-                hash_sessao = st.session_state.get("senha_hash_logada", "")
-                
-                senha_ok = (
-                    (hash_sessao and hash_atual_in == hash_sessao) or
-                    (hash_banco_usr and hash_atual_in == hash_banco_usr) or
-                    (SENHA_GERAL and senha_atual_propria.strip() == SENHA_GERAL)
-                )
-                valida_comp, msg_comp = validar_complexidade_senha(nova_senha_propria)
-                
-                if not senha_atual_propria.strip():
-                    st.warning("⚠️ Digite sua senha atual para continuar.")
-                elif not senha_ok:
-                    st.error("❌ Sua senha atual está incorreta.")
-                elif not valida_comp:
-                    st.warning(f"⚠️ {msg_comp}")
-                elif nova_senha_propria.strip() != conf_senha_propria.strip():
-                    st.error("❌ A confirmação não confere com a nova senha.")
-                else:
-                    if cadastrar_senha_usuario_banco(st.session_state.email_logado, nova_senha_propria.strip(), cargo_usuario_logado):
-                        st.session_state["senha_hash_logada"] = gerar_hash_senha(nova_senha_propria.strip())
-                        st.session_state["msg_sucesso_senha_propria"] = "✅ Sua senha foi alterada com sucesso!"
-                        st.rerun()
+            if not senha_atual_propria.strip():
+                st.warning("⚠️ Digite sua senha atual para continuar.")
+            elif not senha_ok:
+                st.error("❌ Sua senha atual está incorreta.")
+            elif not nova_senha_propria.strip():
+                st.warning("⚠️ Digite a nova senha antes de salvar.")
+            elif not valida_comp:
+                st.warning(f"⚠️ {msg_comp}")
+            elif nova_senha_propria.strip() != conf_senha_propria.strip():
+                st.error("❌ A confirmação não confere com a nova senha.")
+            else:
+                if cadastrar_senha_usuario_banco(st.session_state.email_logado, nova_senha_propria.strip(), cargo_usuario_logado):
+                    st.session_state["senha_hash_logada"] = gerar_hash_senha(nova_senha_propria.strip())
+                    st.session_state["msg_sucesso_senha_propria"] = "✅ Sua senha foi alterada com sucesso!"
+                    for k in ["input_senha_atual_p", "input_nova_senha_p", "input_conf_senha_p"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.rerun()
 
     st.markdown("---")
     
@@ -1521,50 +1535,55 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
         
         st.markdown("---")
 
-        # MÓDULO 2: Redefinição Centralizada de Senha por ADM via Formulário Seguro
+        # MÓDULO 2: Redefinição Centralizada de Senha por ADM
         st.subheader("🔑 Gestão e Redefinição de Senhas (ADM)")
         st.caption("Altere a senha de qualquer operador registrado. É necessário informar a sua senha atual de Administrador para autorizar.")
         
+        # Exibe notificação de sucesso ao redefinir a senha via ADM
+        if "msg_sucesso_senha_adm" in st.session_state:
+            st.success(st.session_state.pop("msg_sucesso_senha_adm"))
+
         lista_emails_autorizados = sorted(list(dict_usuarios.keys()))
         
-        with st.form("form_redefinir_senha_adm"):
-            col_reset1, col_reset2 = st.columns(2)
-            with col_reset1:
-                email_alvo_reset = st.selectbox("Selecione o E-mail do Usuário:", lista_emails_autorizados)
-                senha_atual_adm = st.text_input("Sua Senha Atual (ADM Executor):", type="password")
-            with col_reset2:
-                nova_senha_adm = st.text_input("Nova Senha Corporativa:", type="password")
-                confirma_senha_adm = st.text_input("Confirmar Nova Senha:", type="password")
-                
-            btn_salvar_senha_adm = st.form_submit_button("💾 Redefinir Senha", use_container_width=True)
+        col_reset1, col_reset2 = st.columns(2)
+        with col_reset1:
+            email_alvo_reset = st.selectbox("Selecione o E-mail do Usuário:", lista_emails_autorizados, key="sel_email_alvo_adm")
+            senha_atual_adm = st.text_input("Sua Senha Atual (ADM Executor):", type="password", key="input_senha_adm_atual")
+        with col_reset2:
+            nova_senha_adm = st.text_input("Nova Senha Corporativa:", type="password", key="input_senha_adm_nova")
+            confirma_senha_adm = st.text_input("Confirmar Nova Senha:", type="password", key="input_senha_adm_conf")
             
-            if btn_salvar_senha_adm:
-                hash_atual = gerar_hash_senha(senha_atual_adm)
-                hash_banco_executor, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
-                hash_sessao = st.session_state.get("senha_hash_logada", "")
-                
-                senha_atual_ok = (
-                    (hash_sessao and hash_atual == hash_sessao) or
-                    (hash_banco_executor and hash_atual == hash_banco_executor) or
-                    (SENHA_GERAL and senha_atual_adm.strip() == SENHA_GERAL)
-                )
-                
-                valida_comp, msg_comp = validar_complexidade_senha(nova_senha_adm)
-                
-                if not senha_atual_adm.strip():
-                    st.warning("⚠️ Digite sua senha de Administrador para autorizar a alteração.")
-                elif not senha_atual_ok:
-                    st.error("❌ Senha do Administrador incorreta.")
-                elif not nova_senha_adm.strip():
-                    st.warning("⚠️ Digite a nova senha antes de salvar.")
-                elif not valida_comp:
-                    st.warning(f"⚠️ {msg_comp}")
-                elif nova_senha_adm.strip() != confirma_senha_adm.strip():
-                    st.error("❌ As senhas digitadas não conferem. Digite novamente.")
-                else:
-                    cargo_alvo = dict_usuarios.get(email_alvo_reset, "Operador")
-                    if cadastrar_senha_usuario_banco(email_alvo_reset, nova_senha_adm.strip(), cargo_alvo):
-                        st.success(f"✅ Senha do usuário **{email_alvo_reset}** redefinida com sucesso pelo Administrador!")
+        if st.button("💾 Redefinir Senha", use_container_width=True, key="btn_redefinir_senha_adm"):
+            hash_atual = gerar_hash_senha(senha_atual_adm)
+            hash_banco_executor, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
+            hash_sessao = st.session_state.get("senha_hash_logada", "")
+            
+            senha_atual_ok = (
+                (hash_sessao and hash_atual == hash_sessao) or
+                (hash_banco_executor and hash_atual == hash_banco_executor) or
+                (SENHA_GERAL and senha_atual_adm.strip() == SENHA_GERAL)
+            )
+            
+            valida_comp, msg_comp = validar_complexidade_senha(nova_senha_adm)
+            
+            if not senha_atual_adm.strip():
+                st.warning("⚠️ Digite sua senha de Administrador para autorizar a alteração.")
+            elif not senha_atual_ok:
+                st.error("❌ Senha do Administrador incorreta.")
+            elif not nova_senha_adm.strip():
+                st.warning("⚠️ Digite a nova senha antes de salvar.")
+            elif not valida_comp:
+                st.warning(f"⚠️ {msg_comp}")
+            elif nova_senha_adm.strip() != confirma_senha_adm.strip():
+                st.error("❌ As senhas digitadas não conferem. Digite novamente.")
+            else:
+                cargo_alvo = dict_usuarios.get(email_alvo_reset, "Operador")
+                if cadastrar_senha_usuario_banco(email_alvo_reset, nova_senha_adm.strip(), cargo_alvo):
+                    st.session_state["msg_sucesso_senha_adm"] = f"✅ Senha do usuário **{email_alvo_reset}** redefinida com sucesso pelo Administrador!"
+                    for k in ["input_senha_adm_atual", "input_senha_adm_nova", "input_senha_adm_conf"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.rerun()
         
         st.markdown("---")
 
