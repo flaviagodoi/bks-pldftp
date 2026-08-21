@@ -735,13 +735,13 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
-# --- ESTILIZAÇÃO CSS CONDICIONAL (TELA INICIAL = 100% | TELAS INTERNAS = 82% COMPACTAS + QUADRINHOS CINZA MÉDIO DESTACADOS) ---
+# --- ESTILIZAÇÃO CSS CONDICIONAL (TELA INICIAL = 100% | TELAS INTERNAS = 75% COMPACTA + QUADRINHOS DA ÁREA PRINCIPAL EM CINZA CHUMBO E TAMANHO AJUSTADO) ---
 if st.session_state.autenticado:
     st.markdown("""
         <style>
         .main { 
             background-color: #f8f9fa;
-            zoom: 82%; 
+            zoom: 75%; 
         }
         h1 { color: #0056b3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; margin-bottom: 0px; }
         div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 10px 20px; transition: all 0.3s ease; }
@@ -765,36 +765,37 @@ if st.session_state.autenticado:
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
 
-        /* Estilização Rígida e Direta dos Expanders (Fundo Cinza Médio Estilo Engrenagem #d8dee4 / #cdd5df + Fonte 2 Níveis Maior) */
-        div[data-testid="stExpander"] {
+        /* Estilização Direta APENAS para os Expanders da Área Principal (.main) */
+        .main div[data-testid="stExpander"] {
             background-color: #d8dee4 !important;
             border: 1px solid #b0bac5 !important;
             border-radius: 8px !important;
-            margin-bottom: 16px !important;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.06) !important;
+            margin-bottom: 14px !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
         }
-        div[data-testid="stExpander"] summary {
+        .main div[data-testid="stExpander"] summary {
             background-color: #cdd5df !important;
             border-radius: 7px !important;
-            padding: 14px 20px !important;
-            min-height: 56px !important;
+            padding: 10px 18px !important;
+            min-height: 48px !important;
             display: flex !important;
             align-items: center !important;
         }
-        div[data-testid="stExpander"] summary:hover {
+        .main div[data-testid="stExpander"] summary:hover {
             background-color: #bdc8d4 !important;
         }
-        div[data-testid="stExpander"] summary p, 
-        div[data-testid="stExpander"] summary span,
-        div[data-testid="stExpander"] summary div,
-        div[data-testid="stExpander"] summary label {
-            font-size: 1.35rem !important;
+        /* Fonte reduzida em 1 nível e em tom Cinza Chumbo (#2d3748) */
+        .main div[data-testid="stExpander"] summary p, 
+        .main div[data-testid="stExpander"] summary span,
+        .main div[data-testid="stExpander"] summary div,
+        .main div[data-testid="stExpander"] summary label {
+            font-size: 1.15rem !important;
             font-weight: 700 !important;
-            color: #111827 !important;
+            color: #2d3748 !important; /* Cinza Chumbo */
         }
-        div[data-testid="stExpanderDetails"] {
+        .main div[data-testid="stExpanderDetails"] {
             background-color: #f1f4f6 !important;
-            padding: 20px !important;
+            padding: 18px !important;
             border-top: 1px solid #b0bac5 !important;
             border-bottom-left-radius: 8px !important;
             border-bottom-right-radius: 8px !important;
@@ -1561,7 +1562,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             )
 
 # =============================================================================
-# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS E PERMISSÕES (COM QUADRINHOS DESTACADOS EM CINZA MÉDIO ESTILO ENGRENAGEM)
+# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS E PERMISSÕES (QUADRINHOS CINZA CHUMBO #2d3748)
 # =============================================================================
 elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.title("⚙️ Gerenciador de Usuários e Segurança de Acesso")
