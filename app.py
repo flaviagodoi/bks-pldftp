@@ -85,16 +85,6 @@ CARGOS_NATIVOS = {
     "thaina.oliveira@bks.com.br": "Administrador"
 }
 
-USUARIOS_PADRAO_NATIVOS = [
-    "ariana.reis@bks.com.br",
-    "danielle.almeida@bks.com.br",
-    "carlos.alberto@bks.com.br",
-    "sheila.giopato@bks.com.br",
-    "giovanna.oliveira@bks.com.br",
-    "yuji.akama@bksre.com.br",
-    "seguros@bks.com.br"
-]
-
 ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
 
 def gerar_hash_senha(senha: str) -> str:
@@ -119,7 +109,7 @@ def validar_complexidade_senha(senha: str):
     return True, ""
 
 def carregar_usuarios():
-    """Carrega a lista de usuários mantendo a hierarquia corporativa."""
+    """Carrega a lista de usuários salvos mantendo a hierarquia corporativa dos administradores."""
     usuarios = {}
     
     if os.path.exists(ARQUIVO_USUARIOS):
@@ -133,10 +123,6 @@ def carregar_usuarios():
                         usuarios[email] = cargo
         except Exception:
             pass
-
-    for usr in USUARIOS_PADRAO_NATIVOS:
-        if usr.lower() not in usuarios:
-            usuarios[usr.lower()] = "Operador"
 
     for email_adm, cargo_adm in CARGOS_NATIVOS.items():
         usuarios[email_adm.lower()] = cargo_adm
@@ -168,7 +154,7 @@ def adicionar_novo_usuario(email_input, cargo_escolhido):
     return True, f"Usuário {email_clean} ({cargo_escolhido}) cadastrado com sucesso!"
 
 def remover_usuario(email_remover):
-    """Remove um usuário cadastrado."""
+    """Remove um usuário cadastrado e revoga suas credenciais no banco de dados."""
     email_clean = email_remover.strip().lower()
     dict_atual = carregar_usuarios()
     
@@ -964,7 +950,7 @@ with st.sidebar:
         st.caption("""
             **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
             
-            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitutional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
+            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitucional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
             2. **Armazenamento Seguro:** O histórico de laudos e vencimentos é mantido em banco de dados corporativo criptografado (Supabase via SSL/TLS), sem armazenamento temporário em máquinas operacionais.
             3. **Minimização de Riscos:** As exibições públicas utilizam mascaramento parcial de CPF (`123.***.***-89`), reduzindo a exposição em conformidade com as diretrizes da ANPD.
             4. **Confidencialidade:** Os dados pesquisados destinam-se exclusivamente ao respaldo regulatório corporativo, sendo vedada a comercialização ou compartilhamento não autorizado.
