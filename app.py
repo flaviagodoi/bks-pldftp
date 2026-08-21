@@ -722,33 +722,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    h1 { color: #0056b3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; margin-bottom: 0px; }
-    div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 10px 20px; transition: all 0.3s ease; }
-    div.stButton > button:first-child:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
-    
-    a.btn-receita-azul {
-        display: block;
-        width: 100%;
-        background-color: #0056b3;
-        color: white !important;
-        text-align: center;
-        font-weight: bold;
-        padding: 12px 20px;
-        border-radius: 6px;
-        text-decoration: none;
-        margin-top: 10px;
-        transition: all 0.3s ease;
-    }
-    a.btn-receita-azul:hover {
-        background-color: #003366;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "email_logado" not in st.session_state:
@@ -762,7 +735,63 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
-# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS NIVELADOS ÀS EXTREMIDADES ---
+# --- ESTILIZAÇÃO CSS CONDICIONAL (TELA INICIAL = 100% | TELAS INTERNAS = 82% COMPACTAS) ---
+if st.session_state.autenticado:
+    st.markdown("""
+        <style>
+        .main { 
+            background-color: #f8f9fa;
+            zoom: 82%; 
+        }
+        h1 { color: #0056b3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; margin-bottom: 0px; }
+        div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 10px 20px; transition: all 0.3s ease; }
+        div.stButton > button:first-child:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+        
+        a.btn-receita-azul {
+            display: block;
+            width: 100%;
+            background-color: #0056b3;
+            color: white !important;
+            text-align: center;
+            font-weight: bold;
+            padding: 12px 20px;
+            border-radius: 6px;
+            text-decoration: none;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+        a.btn-receita-azul:hover {
+            background-color: #003366;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        /* Estilização dos Expanders da Gestão de Usuários (Fundo Cinza Médio) */
+        div.expander-cinza div[data-testid="stExpander"] {
+            background-color: #e9ecef !important;
+            border: 1px solid #ced4da !important;
+            border-radius: 8px !important;
+            margin-bottom: 12px !important;
+        }
+        div.expander-cinza div[data-testid="stExpander"] summary {
+            background-color: #dee2e6 !important;
+            border-radius: 6px !important;
+            font-weight: bold !important;
+            color: #212529 !important;
+            padding: 10px !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+        <style>
+        .main { background-color: #f8f9fa; }
+        h1 { color: #0056b3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; margin-bottom: 0px; }
+        div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 10px 20px; transition: all 0.3s ease; }
+        div.stButton > button:first-child:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+        </style>
+    """, unsafe_allow_html=True)
+
+# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS NIVELADOS ÀS EXTREMIDADES (100% ESCALA) ---
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
@@ -1512,7 +1541,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             )
 
 # =============================================================================
-# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS E PERMISSÕES
+# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS E PERMISSÕES (COM EXPANDERS CINZA MÉDIO)
 # =============================================================================
 elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.title("⚙️ Gerenciador de Usuários e Segurança de Acesso")
@@ -1521,123 +1550,123 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
 
     dict_usuarios = carregar_usuarios()
 
+    # Envolvente CSS para Fundo Cinza Médio nos Expanders
+    st.markdown('<div class="expander-cinza">', unsafe_allow_html=True)
+
     # --- ÁREA EXCLUSIVA DE ADMINISTRADOR ---
     if eh_admin:
         # MÓDULO 1: Autorizar Novo E-mail
-        st.subheader("➕ Autorizar Novo E-mail Corporativo")
-        col_add1, col_add2, col_add3 = st.columns([2.5, 1.2, 1])
-        with col_add1:
-            novo_email_input = st.text_input("E-mail para autorizar:", placeholder="novo.usuario@bks.com.br")
-        with col_add2:
-            perfil_input = st.selectbox("Cargo / Perfil:", ["Operador", "Administrador", "Gerente", "Diretoria"])
-        with col_add3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("✅ Autorizar Acesso", use_container_width=True):
-                sucesso, msg = adicionar_novo_usuario(novo_email_input, perfil_input)
-                if sucesso:
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.warning(msg)
-        
-        st.markdown("---")
+        with st.expander("➕ Autorizar Novo E-mail Corporativo", expanded=False):
+            col_add1, col_add2, col_add3 = st.columns([2.5, 1.2, 1])
+            with col_add1:
+                novo_email_input = st.text_input("E-mail para autorizar:", placeholder="novo.usuario@bks.com.br")
+            with col_add2:
+                perfil_input = st.selectbox("Cargo / Perfil:", ["Operador", "Administrador", "Gerente", "Diretoria"])
+            with col_add3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("✅ Autorizar Acesso", use_container_width=True):
+                    sucesso, msg = adicionar_novo_usuario(novo_email_input, perfil_input)
+                    if sucesso:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.warning(msg)
 
         # MÓDULO 2: Redefinição Centralizada de Senha por ADM
-        st.subheader("🔑 Gestão e Redefinição de Senhas (ADM)")
-        st.caption("Altere a senha de qualquer operador registrado. É necessário informar a sua senha atual de Administrador para autorizar.")
-        
-        # Exibe notificação de sucesso ao redefinir a senha via ADM
-        if "msg_sucesso_senha_adm" in st.session_state:
-            st.success(st.session_state.pop("msg_sucesso_senha_adm"))
+        with st.expander("🔑 Gestão e Redefinição de Senhas (ADM)", expanded=False):
+            st.caption("Altere a senha de qualquer operador registrado. É necessário informar a sua senha atual de Administrador para autorizar.")
+            
+            # Exibe notificação de sucesso ao redefinir a senha via ADM
+            if "msg_sucesso_senha_adm" in st.session_state:
+                st.success(st.session_state.pop("msg_sucesso_senha_adm"))
 
-        lista_emails_autorizados = sorted(list(dict_usuarios.keys()))
-        
-        col_reset1, col_reset2 = st.columns(2)
-        with col_reset1:
-            email_alvo_reset = st.selectbox("Selecione o E-mail do Usuário:", lista_emails_autorizados, key="sel_email_alvo_adm")
-            senha_atual_adm = st.text_input("Sua Senha Atual (ADM Executor):", type="password", key="input_senha_adm_atual")
-        with col_reset2:
-            nova_senha_adm = st.text_input("Nova Senha Corporativa:", type="password", key="input_senha_adm_nova")
-            confirma_senha_adm = st.text_input("Confirmar Nova Senha:", type="password", key="input_senha_adm_conf")
+            lista_emails_autorizados = sorted(list(dict_usuarios.keys()))
             
-        if st.button("💾 Redefinir Senha", use_container_width=True, key="btn_redefinir_senha_adm"):
-            hash_atual = gerar_hash_senha(senha_atual_adm)
-            hash_banco_executor, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
-            hash_sessao = st.session_state.get("senha_hash_logada", "")
-            
-            senha_atual_ok = (
-                (hash_sessao and hash_atual == hash_sessao) or
-                (hash_banco_executor and hash_atual == hash_banco_executor) or
-                (SENHA_GERAL and senha_atual_adm.strip() == SENHA_GERAL)
-            )
-            
-            valida_comp, msg_comp = validar_complexidade_senha(nova_senha_adm)
-            
-            if not senha_atual_adm.strip():
-                st.warning("⚠️ Digite sua senha de Administrador para autorizar a alteração.")
-            elif not senha_atual_ok:
-                st.error("❌ Senha do Administrador incorreta.")
-            elif not nova_senha_adm.strip():
-                st.warning("⚠️ Digite a nova senha antes de salvar.")
-            elif not valida_comp:
-                st.warning(f"⚠️ {msg_comp}")
-            elif nova_senha_adm.strip() != confirma_senha_adm.strip():
-                st.error("❌ As senhas digitadas não conferem. Digite novamente.")
-            else:
-                cargo_alvo = dict_usuarios.get(email_alvo_reset, "Operador")
-                if cadastrar_senha_usuario_banco(email_alvo_reset, nova_senha_adm.strip(), cargo_alvo):
-                    st.session_state["msg_sucesso_senha_adm"] = f"✅ Senha do usuário **{email_alvo_reset}** redefinida com sucesso pelo Administrador!"
-                    for k in ["input_senha_adm_atual", "input_senha_adm_nova", "input_senha_adm_conf"]:
-                        if k in st.session_state:
-                            del st.session_state[k]
-                    st.rerun()
-        
-        st.markdown("---")
+            col_reset1, col_reset2 = st.columns(2)
+            with col_reset1:
+                email_alvo_reset = st.selectbox("Selecione o E-mail do Usuário:", lista_emails_autorizados, key="sel_email_alvo_adm")
+                senha_atual_adm = st.text_input("Sua Senha Atual (ADM Executor):", type="password", key="input_senha_adm_atual")
+            with col_reset2:
+                nova_senha_adm = st.text_input("Nova Senha Corporativa:", type="password", key="input_senha_adm_nova")
+                confirma_senha_adm = st.text_input("Confirmar Nova Senha:", type="password", key="input_senha_adm_conf")
+                
+            if st.button("💾 Redefinir Senha", use_container_width=True, key="btn_redefinir_senha_adm"):
+                hash_atual = gerar_hash_senha(senha_atual_adm)
+                hash_banco_executor, _ = buscar_senha_usuario_banco(st.session_state.email_logado)
+                hash_sessao = st.session_state.get("senha_hash_logada", "")
+                
+                senha_atual_ok = (
+                    (hash_sessao and hash_atual == hash_sessao) or
+                    (hash_banco_executor and hash_atual == hash_banco_executor) or
+                    (SENHA_GERAL and senha_atual_adm.strip() == SENHA_GERAL)
+                )
+                
+                valida_comp, msg_comp = validar_complexidade_senha(nova_senha_adm)
+                
+                if not senha_atual_adm.strip():
+                    st.warning("⚠️ Digite sua senha de Administrador para autorizar a alteração.")
+                elif not senha_atual_ok:
+                    st.error("❌ Senha do Administrador incorreta.")
+                elif not nova_senha_adm.strip():
+                    st.warning("⚠️ Digite a nova senha antes de salvar.")
+                elif not valida_comp:
+                    st.warning(f"⚠️ {msg_comp}")
+                elif nova_senha_adm.strip() != confirma_senha_adm.strip():
+                    st.error("❌ As senhas digitadas não conferem. Digite novamente.")
+                else:
+                    cargo_alvo = dict_usuarios.get(email_alvo_reset, "Operador")
+                    if cadastrar_senha_usuario_banco(email_alvo_reset, nova_senha_adm.strip(), cargo_alvo):
+                        st.session_state["msg_sucesso_senha_adm"] = f"✅ Senha do usuário **{email_alvo_reset}** redefinida com sucesso pelo Administrador!"
+                        for k in ["input_senha_adm_atual", "input_senha_adm_nova", "input_senha_adm_conf"]:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.rerun()
 
     # MÓDULO 3: Tabela Geral de Usuários Cadastrados
-    st.subheader("📋 Lista de Usuários com Acesso Liberado")
+    with st.expander("📋 Lista de Usuários com Acesso Liberado", expanded=True):
+        if not dict_usuarios:
+            st.info("Nenhum usuário cadastrado.")
+        else:
+            col_u_head1, col_u_head2, col_u_head3 = st.columns([3, 2, 1])
+            with col_u_head1:
+                st.markdown("**📧 E-mail Autorizado**")
+            with col_u_head2:
+                st.markdown("**Cargo / Perfil**")
+            with col_u_head3:
+                st.markdown("**Ação**")
+            st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
-    if not dict_usuarios:
-        st.info("Nenhum usuário cadastrado.")
-    else:
-        col_u_head1, col_u_head2, col_u_head3 = st.columns([3, 2, 1])
-        with col_u_head1:
-            st.markdown("**📧 E-mail Autorizado**")
-        with col_u_head2:
-            st.markdown("**Cargo / Perfil**")
-        with col_u_head3:
-            st.markdown("**Ação**")
-        st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
+            admins_nativos_lower = [a.lower() for a in CARGOS_NATIVOS.keys()]
 
-        admins_nativos_lower = [a.lower() for a in CARGOS_NATIVOS.keys()]
-
-        for idx, (usr_email, cargo_usr) in enumerate(sorted(dict_usuarios.items())):
-            c_u1, c_u2, c_u3 = st.columns([3, 2, 1])
-            with c_u1:
-                st.write(f"**{usr_email}**")
-            with c_u2:
-                if cargo_usr == "Administrador/Programador":
-                    st.write("⭐ Administrador/Programador")
-                elif cargo_usr == "Diretoria":
-                    st.write("🏛️ Diretoria")
-                elif cargo_usr == "Gerente":
-                    st.write("💼 Gerente")
-                elif cargo_usr in ["Administrador", "admin"]:
-                    st.write("🔑 Administrador")
-                else:
-                    st.write("👤 Operador")
-            with c_u3:
-                if eh_admin:
-                    if usr_email in admins_nativos_lower or usr_email == st.session_state.email_logado.strip().lower():
-                        st.caption("Protegido")
+            for idx, (usr_email, cargo_usr) in enumerate(sorted(dict_usuarios.items())):
+                c_u1, c_u2, c_u3 = st.columns([3, 2, 1])
+                with c_u1:
+                    st.write(f"**{usr_email}**")
+                with c_u2:
+                    if cargo_usr == "Administrador/Programador":
+                        st.write("⭐ Administrador/Programador")
+                    elif cargo_usr == "Diretoria":
+                        st.write("🏛️ Diretoria")
+                    elif cargo_usr == "Gerente":
+                        st.write("💼 Gerente")
+                    elif cargo_usr in ["Administrador", "admin"]:
+                        st.write("🔑 Administrador")
                     else:
-                        if st.button("🗑️ Revogar", key=f"btn_del_usr_final_{usr_email}_{idx}"):
-                            ok, msg_del = remover_usuario(usr_email)
-                            if ok:
-                                st.success(msg_del)
-                                st.rerun()
-                            else:
-                                st.error(msg_del)
-                else:
-                    st.caption("🔒 Leitura")
-            st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #e6e6e6;'>", unsafe_allow_html=True)
+                        st.write("👤 Operador")
+                with c_u3:
+                    if eh_admin:
+                        if usr_email in admins_nativos_lower or usr_email == st.session_state.email_logado.strip().lower():
+                            st.caption("Protegido")
+                        else:
+                            if st.button("🗑️ Revogar", key=f"btn_del_usr_final_{usr_email}_{idx}"):
+                                ok, msg_del = remover_usuario(usr_email)
+                                if ok:
+                                    st.success(msg_del)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_del)
+                    else:
+                        st.caption("🔒 Leitura")
+                st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #d0d7de;'>", unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
