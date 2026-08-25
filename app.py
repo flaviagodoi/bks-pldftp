@@ -18,8 +18,9 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 # -----------------------------------------------------------------------------
 SENHA_GERAL = st.secrets.get("SENHA_GERAL", "")
 
+@st.cache_data(show_spinner=False)
 def obter_base64_imagem(caminho_imagem):
-    """Converte arquivo de imagem local para Base64 permitindo alinhamento CSS fluido."""
+    """Converte imagem local em Base64 com cache em memória para resposta instantânea."""
     if caminho_imagem and os.path.exists(caminho_imagem):
         try:
             with open(caminho_imagem, "rb") as f:
@@ -29,10 +30,11 @@ def obter_base64_imagem(caminho_imagem):
     return None
 
 # -----------------------------------------------------------------------------
-# 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE (POSTGRESQL)
+# 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE (POSTGRESQL - CACHED)
 # -----------------------------------------------------------------------------
+@st.cache_resource(show_spinner=False)
 def obter_conexao_banco():
-    """Retorna a engine de conexão do SQLAlchemy para o Supabase sem prender pool."""
+    """Retorna e mantém em cache a conexão do SQLAlchemy para o Supabase sem prender pool."""
     if "DATABASE_URL" in st.secrets:
         db_url = st.secrets["DATABASE_URL"]
         if db_url.startswith("postgres://"):
@@ -40,8 +42,9 @@ def obter_conexao_banco():
         return create_engine(db_url, poolclass=NullPool)
     return None
 
-def inicializar_banco_supabase():
-    """Cria as tabelas no Supabase automaticamente se ainda não existirem."""
+@st.cache_resource(show_spinner=False)
+def inicializar_banco_supabase_uma_vez():
+    """Cria as tabelas no Supabase apenas 1 vez na inicialização da aplicação."""
     engine = obter_conexao_banco()
     if engine:
         try:
@@ -72,7 +75,7 @@ def inicializar_banco_supabase():
         except Exception:
             pass
 
-inicializar_banco_supabase()
+inicializar_banco_supabase_uma_vez()
 
 # -----------------------------------------------------------------------------
 # 🔐 GERENCIAMENTO DE SENHAS INDIVIDUAIS E USUÁRIOS (SUPABASE + HASH)
@@ -108,6 +111,7 @@ def validar_complexidade_senha(senha: str):
         return False, "A senha deve conter pelo menos um CARACTERE ESPECIAL (ex: @, #, $, !, %, *)."
     return True, ""
 
+@st.cache_data(show_spinner=False)
 def carregar_usuarios():
     """Carrega a lista de usuários salvos mantendo a hierarquia corporativa dos administradores."""
     usuarios = {}
@@ -130,12 +134,13 @@ def carregar_usuarios():
     return usuarios
 
 def salvar_usuarios_csv(dict_usuarios):
-    """Grava os usuários e papéis no arquivo local."""
+    """Grava os usuários e papéis no arquivo local e limpa o cache."""
     try:
         with open(ARQUIVO_USUARIOS, mode='w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f, delimiter=';')
             for email, cargo in dict_usuarios.items():
                 writer.writerow([email, cargo])
+        carregar_usuarios.clear()
     except Exception:
         st.error("Erro interno ao atualizar permissões locais.")
 
@@ -452,8 +457,9 @@ BASE_PEP_NATIVA = {
     }
 }
 
+@st.cache_data(show_spinner=False)
 def identificar_arquivo_pep():
-    """Localiza o arquivo da planilha de PEPs no diretório local."""
+    """Localiza o arquivo da planilha de PEPs no diretório local com cache."""
     for arq in ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]:
         if os.path.exists(arq):
             return arq
