@@ -412,14 +412,27 @@ def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao
         except Exception:
             st.error("Falha ao registrar vencimento no banco seguro.")
 
+def remover_vencimento(cpf_key):
+    """Remove permanentemente um relatório da base do Supabase (Apenas Administradores)."""
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("DELETE FROM vencimentos_pld WHERE cpf_key = :key"), {"key": cpf_key})
+                conn.commit()
+                return True, "Relatório excluído permanentemente da base com sucesso!"
+        except Exception:
+            pass
+    return False, "Erro ao excluir relatório do banco de dados."
+
 def carregar_vencimentos():
-    """Lê a lista completa de relatórios diretamente da nuvem do Supabase."""
+    """Lê a lista completa de relatórios diretamente da nuvem em ordem alfabética."""
     registros = []
     engine = obter_conexao_banco()
     if engine:
         try:
             with engine.connect() as conn:
-                res = conn.execute(text("SELECT nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso FROM vencimentos_pld ORDER BY data_vencimento_iso ASC;"))
+                res = conn.execute(text("SELECT nome, cpf, cpf_mascarado, cpf_key, operador, data_emissao, status_pep, data_vencimento, data_vencimento_iso FROM vencimentos_pld ORDER BY nome ASC;"))
                 for r in res:
                     registros.append({
                         "Nome": r[0],
@@ -1393,7 +1406,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     )
 
 # =============================================================================
-# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS (LAZY LOADING DE DADOS)
+# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS (ORDEM ALFABÉTICA + EXCLUSÃO ADM)
 # =============================================================================
 elif opcao_menu == "📊 Gestão de Vencimentos":
     st.title("📊 Gestão de Vencimentos de Relatórios PLD/FTP")
@@ -1443,6 +1456,9 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 "Status do Prazo": status_alerta,
                 "Operador": reg.get("Operador", "")
             })
+
+        # Garante ordenação alfabética pelo Nome Completo
+        dados_processados = sorted(dados_processados, key=lambda x: x["Nome Completo"])
 
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         col_m1.metric("Total de Relatórios", len(registros))
@@ -1520,12 +1536,12 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             dados_filtrados.append(item)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📋 Relatórios Cadastrados")
+        st.subheader("📋 Relatórios Cadastrados (Ordem Alfabética)")
 
         if not dados_filtrados:
             st.warning("Nenhum registro localizado com os filtros selecionados.")
         else:
-            col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7, col_h8 = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 0.8])
+            col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7, col_h8 = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 1.2])
             with col_h1:
                 st.markdown("**👤 Nome Completo**")
             with col_h2:
@@ -1541,11 +1557,11 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             with col_h7:
                 st.markdown("**📧 Operador**")
             with col_h8:
-                st.markdown("**⚡ Ação**")
+                st.markdown("**⚡ Ações**")
             st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
             for idx, item in enumerate(dados_filtrados):
-                c_n, c_c, c_p, c_e, c_v, c_s, c_o, c_b = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 0.8])
+                c_n, c_c, c_p, c_e, c_v, c_s, c_o, c_b = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 1.2])
                 
                 with c_n:
                     st.write(f"**{item['Nome Completo']}**")
@@ -1562,10 +1578,27 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 with c_o:
                     st.write(f"`{item['Operador']}`")
                 with c_b:
-                    if st.button("🔄 Renovar", key=f"btn_renovar_{idx}"):
-                        st.session_state.renovar_nome = item["Nome Completo"]
-                        st.session_state.renovar_cpf = item["CPF_Real"]
-                        st.rerun()
+                    if eh_admin:
+                        ca1, ca2 = st.columns(2)
+                        with ca1:
+                            if st.button("🔄", key=f"btn_renovar_{idx}", help="Renovar Relatório"):
+                                st.session_state.renovar_nome = item["Nome Completo"]
+                                st.session_state.renovar_cpf = item["CPF_Real"]
+                                st.rerun()
+                        with ca2:
+                            if st.button("🗑️", key=f"btn_del_rep_{idx}", help="Excluir Relatório Permanentemente"):
+                                ok_del, msg_del = remover_vencimento(item["CPF_Real"])
+                                if ok_del:
+                                    st.success(msg_del)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_del)
+                    else:
+                        if st.button("🔄 Renovar", key=f"btn_renovar_{idx}"):
+                            st.session_state.renovar_nome = item["Nome Completo"]
+                            st.session_state.renovar_cpf = item["CPF_Real"]
+                            st.rerun()
+
                 st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #e6e6e6;'>", unsafe_allow_html=True)
 
         if eh_admin:
