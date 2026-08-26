@@ -256,6 +256,35 @@ def obter_cargo_usuario(email: str) -> str:
     dict_usuarios = carregar_usuarios()
     return dict_usuarios.get(email_clean, "Operador")
 
+def formatar_nome_colaborador(email_ou_nome: str) -> str:
+    """Converte e-mails como 'flavia.godoi@bks.com.br' para 'Flávia Godoi'."""
+    if not email_ou_nome:
+        return "Operador"
+    
+    if "@" in email_ou_nome:
+        usuario = email_ou_nome.split("@")[0]
+    else:
+        usuario = email_ou_nome
+        
+    partes = re.split(r'[\._\s]+', usuario)
+    nomes_formatados = []
+    
+    depara = {
+        "flavia": "Flávia",
+        "thaina": "Thainá",
+        "marcio": "Márcio",
+        "vitor": "Vítor"
+    }
+    
+    for p in partes:
+        p_clean = p.lower().strip()
+        if p_clean in depara:
+            nomes_formatados.append(depara[p_clean])
+        else:
+            nomes_formatados.append(p_clean.capitalize())
+            
+    return " ".join(nomes_formatados)
+
 # -----------------------------------------------------------------------------
 # 🛠️ MÁSCARAS, VALIDAÇÃO E MOTOR DE CROSS-VALIDATION NOME x CPF
 # -----------------------------------------------------------------------------
@@ -420,10 +449,10 @@ def remover_vencimento(cpf_key):
             with engine.connect() as conn:
                 conn.execute(text("DELETE FROM vencimentos_pld WHERE cpf_key = :key"), {"key": cpf_key})
                 conn.commit()
-                return True, "Relatório excluído permanentemente da base com sucesso!"
+                return True, "Registro encerrado/excluído com sucesso!"
         except Exception:
             pass
-    return False, "Erro ao excluir relatório do banco de dados."
+    return False, "Erro ao remover registro do banco de dados."
 
 def carregar_vencimentos():
     """Lê a lista completa de relatórios diretamente da nuvem em ordem alfabética."""
@@ -968,7 +997,8 @@ with st.sidebar:
     st.caption("BKS Corretora & BKS Re Resseguros")
     st.markdown("---")
     
-    st.markdown(f"📧 **Operador:** {st.session_state.email_logado}\n\n*(⭐ {cargo_usuario_logado})*")
+    nome_operador_formatado = formatar_nome_colaborador(st.session_state.email_logado)
+    st.markdown(f"👤 **Operador:** {nome_operador_formatado}\n\n*(⭐ {cargo_usuario_logado})*")
     
     # Notificação de sucesso ao alterar a senha própria
     if "msg_sucesso_senha_propria" in st.session_state:
@@ -1273,7 +1303,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     story.append(Paragraph("RELATÓRIO DE CONSULTA E CONFORMIDADE (PLD/FTP)", style_title))
                     story.append(Spacer(1, 10))
 
-                    emissor_nome = f"Operador: {st.session_state.email_logado}"
+                    emissor_nome = f"Operador: {formatar_nome_colaborador(st.session_state.email_logado)}"
                     meta_table_data = [
                         [Paragraph(f"Emissor: {emissor_nome}", style_meta_val)],
                         [Paragraph("Status: CONCLUÍDO &nbsp;|&nbsp; Classificação: CONFIDENCIAL", style_meta_val)]
@@ -1406,7 +1436,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     )
 
 # =============================================================================
-# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS (ORDEM ALFABÉTICA + EXCLUSÃO ADM)
+# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS (ORDEM ALFABÉTICA + AÇÕES NA FRENTE + ENCERRAMENTO)
 # =============================================================================
 elif opcao_menu == "📊 Gestão de Vencimentos":
     st.title("📊 Gestão de Vencimentos de Relatórios PLD/FTP")
@@ -1444,6 +1474,8 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 
             cpf_completo = reg.get("CPF_Key", reg.get("CPF", ""))
             cpf_mascarado = reg.get("CPF_Mascarado", mascarar_cpf(cpf_completo))
+            operador_bruto = reg.get("Operador", "")
+            operador_nome = formatar_nome_colaborador(operador_bruto)
 
             dados_processados.append({
                 "Nome Completo": reg.get("Nome", ""),
@@ -1454,10 +1486,11 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 "Data de Emissão": reg.get("Data_Emissao", ""),
                 "Data de Vencimento": reg.get("Data_Vencimento", ""),
                 "Status do Prazo": status_alerta,
-                "Operador": reg.get("Operador", "")
+                "Operador": operador_nome,
+                "Operador_Email": operador_bruto
             })
 
-        # Garante ordenação alfabética pelo Nome Completo
+        # Ordenação Alfabética Rigorosa
         dados_processados = sorted(dados_processados, key=lambda x: x["Nome Completo"])
 
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -1481,9 +1514,8 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     "👤 Nome Completo",
                     "📄 CPF",
                     "🛡️ Status PEP",
-                    "📅 Data de Emissão",
                     "⏰ Data de Vencimento",
-                    "📧 Operador"
+                    "👤 Operador"
                 ]
             )
         with col_f2:
@@ -1512,25 +1544,21 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 elif tipo_filtro == "🛡️ Status PEP":
                     if tb_norm not in normalizar_texto(item["Status PEP"]):
                         continue
-                elif tipo_filtro == "📅 Data de Emissão":
-                    if tb_norm not in normalizar_texto(item["Data de Emissão"]):
-                        continue
                 elif tipo_filtro == "⏰ Data de Vencimento":
                     if tb_norm not in normalizar_texto(item["Data de Vencimento"]):
                         continue
-                elif tipo_filtro == "📧 Operador":
-                    if tb_norm not in normalizar_texto(item["Operador"]):
+                elif tipo_filtro == "👤 Operador":
+                    if tb_norm not in normalizar_texto(item["Operador"]) and tb_norm not in normalizar_texto(item["Operador_Email"]):
                         continue
                 elif tipo_filtro in ["Todos os Campos", "🔴 Apenas Vencidos", "🟡 Vencem em breve", "🟢 Apenas Válidos"]:
                     in_nome = tb_norm in normalizar_texto(item["Nome Completo"])
                     cpf_limpo_item = re.sub(r'\D', '', item["CPF_Real"])
                     in_cpf = (tb_limpo_num != "" and tb_limpo_num in cpf_limpo_item) or tb_norm in normalizar_texto(item["CPF_Exibicao"])
                     in_pep = tb_norm in normalizar_texto(item["Status PEP"])
-                    in_emis = tb_norm in normalizar_texto(item["Data de Emissão"])
                     in_venc = tb_norm in normalizar_texto(item["Data de Vencimento"])
-                    in_oper = tb_norm in normalizar_texto(item["Operador"])
+                    in_oper = tb_norm in normalizar_texto(item["Operador"]) or tb_norm in normalizar_texto(item["Operador_Email"])
 
-                    if not (in_nome or in_cpf or in_pep or in_emis or in_venc or in_oper):
+                    if not (in_nome or in_cpf or in_pep or in_venc or in_oper):
                         continue
 
             dados_filtrados.append(item)
@@ -1541,70 +1569,64 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         if not dados_filtrados:
             st.warning("Nenhum registro localizado com os filtros selecionados.")
         else:
-            col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7, col_h8 = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 1.2])
-            with col_h1:
-                st.markdown("**👤 Nome Completo**")
-            with col_h2:
-                st.markdown("**📄 CPF (LGPD)**")
-            with col_h3:
-                st.markdown("**🛡️ PEP**")
-            with col_h4:
-                st.markdown("**📅 Emissão**")
-            with col_h5:
-                st.markdown("**⏰ Vencimento**")
-            with col_h6:
-                st.markdown("**📌 Status Prazo**")
-            with col_h7:
-                st.markdown("**📧 Operador**")
-            with col_h8:
+            # Ações movidas para a PRIMEIRA coluna
+            col_h_act, col_h_nome, col_h_cpf, col_h_pep, col_h_venc, col_h_status, col_h_oper = st.columns([1.5, 2.5, 1.2, 0.8, 1.1, 1.1, 1.5])
+            
+            with col_h_act:
                 st.markdown("**⚡ Ações**")
+            with col_h_nome:
+                st.markdown("**👤 Nome Completo**")
+            with col_h_cpf:
+                st.markdown("**📄 CPF (LGPD)**")
+            with col_h_pep:
+                st.markdown("**🛡️ PEP**")
+            with col_h_venc:
+                st.markdown("**⏰ Vencimento**")
+            with col_h_status:
+                st.markdown("**📌 Status Prazo**")
+            with col_h_oper:
+                st.markdown("**👤 Operador**")
+                
             st.markdown("<hr style='margin-top:2px; margin-bottom:8px;'>", unsafe_allow_html=True)
 
             for idx, item in enumerate(dados_filtrados):
-                c_n, c_c, c_p, c_e, c_v, c_s, c_o, c_b = st.columns([2.2, 1.2, 0.8, 1.1, 1.1, 1.1, 1.5, 1.2])
+                c_act, c_nome, c_cpf, c_pep, c_venc, c_status, c_oper = st.columns([1.5, 2.5, 1.2, 0.8, 1.1, 1.1, 1.5])
                 
-                with c_n:
-                    st.write(f"**{item['Nome Completo']}**")
-                with c_c:
-                    st.write(item["CPF_Exibicao"])
-                with c_p:
-                    st.write(item["Status PEP"])
-                with c_e:
-                    st.write(item["Data de Emissão"])
-                with c_v:
-                    st.write(item["Data de Vencimento"])
-                with c_s:
-                    st.write(item["Status do Prazo"])
-                with c_o:
-                    st.write(f"`{item['Operador']}`")
-                with c_b:
-                    if eh_admin:
-                        ca1, ca2 = st.columns(2)
-                        with ca1:
-                            if st.button("🔄", key=f"btn_renovar_{idx}", help="Renovar Relatório"):
-                                st.session_state.renovar_nome = item["Nome Completo"]
-                                st.session_state.renovar_cpf = item["CPF_Real"]
-                                st.rerun()
-                        with ca2:
-                            if st.button("🗑️", key=f"btn_del_rep_{idx}", help="Excluir Relatório Permanentemente"):
-                                ok_del, msg_del = remover_vencimento(item["CPF_Real"])
-                                if ok_del:
-                                    st.success(msg_del)
-                                    st.rerun()
-                                else:
-                                    st.error(msg_del)
-                    else:
-                        if st.button("🔄 Renovar", key=f"btn_renovar_{idx}"):
+                with c_act:
+                    with st.popover("⚡ Opções", use_container_width=True):
+                        st.caption(f"Registro: **{item['Nome Completo']}**")
+                        if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
                             st.session_state.renovar_nome = item["Nome Completo"]
                             st.session_state.renovar_cpf = item["CPF_Real"]
                             st.rerun()
+                        
+                        if st.button("🚫 Encerrar / Excluir Registro", key=f"pop_encerrar_{idx}", use_container_width=True):
+                            ok_del, msg_del = remover_vencimento(item["CPF_Real"])
+                            if ok_del:
+                                st.success(msg_del)
+                                st.rerun()
+                            else:
+                                st.error(msg_del)
+
+                with c_nome:
+                    st.write(f"**{item['Nome Completo']}**")
+                with c_cpf:
+                    st.write(item["CPF_Exibicao"])
+                with c_pep:
+                    st.write(item["Status PEP"])
+                with c_venc:
+                    st.write(item["Data de Vencimento"])
+                with c_status:
+                    st.write(item["Status do Prazo"])
+                with c_oper:
+                    st.write(f"**{item['Operador']}**")
 
                 st.markdown("<hr style='margin-top:2px; margin-bottom:2px; border: 0.5px solid #e6e6e6;'>", unsafe_allow_html=True)
 
         if eh_admin:
             st.markdown("<br>", unsafe_allow_html=True)
             csv_buffer = io.StringIO()
-            campos = ["Nome Completo", "CPF", "Status PEP", "Data de Emissão", "Data de Vencimento", "Status do Prazo", "Operador"]
+            campos = ["Nome Completo", "CPF", "Status PEP", "Data de Vencimento", "Status do Prazo", "Operador"]
             writer = csv.DictWriter(csv_buffer, fieldnames=campos, delimiter=';')
             writer.writeheader()
             
@@ -1614,7 +1636,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     "Nome Completo": d["Nome Completo"],
                     "CPF": d["CPF_Excel"],
                     "Status PEP": d["Status PEP"],
-                    "Data de Emissão": d["Data de Emissão"],
                     "Data de Vencimento": d["Data de Vencimento"],
                     "Status do Prazo": d["Status do Prazo"],
                     "Operador": d["Operador"]
