@@ -95,7 +95,7 @@ def gerar_hash_senha(senha: str) -> str:
     return hashlib.sha256(senha.strip().encode('utf-8')).hexdigest()
 
 def validar_complexidade_senha(senha: str):
-    """Valida se a senha atende aos requisitos mínimos de complexidade corporativa."""
+    """Valida regra rigorosa: mínimo 8 dígitos, contendo maiúscula, minúscula, número e caractere especial (!@#$%&*)."""
     s = senha.strip() if senha else ""
     if not s or len(s) < 8:
         return False, "A senha deve conter no mínimo 8 dígitos."
@@ -105,8 +105,8 @@ def validar_complexidade_senha(senha: str):
         return False, "A senha deve conter pelo menos uma letra MINÚSCULA."
     if not re.search(r'[0-9]', s):
         return False, "A senha deve conter pelo menos um NÚMERO."
-    if not re.search(r'[^a-zA-Z0-9]', s):
-        return False, "A senha deve conter pelo menos um CARACTERE ESPECIAL (ex: @, #, $, !, %, *)."
+    if not re.search(r'[!@#$%&*]', s):
+        return False, "A senha deve conter pelo menos um CARACTERE ESPECIAL (!@#$%&*)."
     return True, ""
 
 def carregar_usuarios():
@@ -296,7 +296,7 @@ def validar_cpf(cpf: str) -> bool:
     resto = (soma * 10) % 11
     digito_2 = 0 if resto == 10 else resto
     if digito_2 != int(cpf_limpo[10]):
-        return False
+        return False, ""
         
     return True
 
@@ -880,13 +880,15 @@ if not st.session_state.autenticado:
             
             if not senha_hash_banco:
                 st.info("🆕 **Primeiro Acesso ou Redefinição Detectada:** Crie sua senha individual abaixo.")
-                st.caption("📌 *Requisitos: Mínimo 8 dígitos, contendo maiúscula, minúscula, número e caractere especial.*")
-                nova_senha = st.text_input("🔑 Crie sua Nova Senha:", type="password")
-                confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password")
+                st.caption("📌 *Requisitos: Mínimo 8 dígitos, contendo maiúscula, minúscula, número e caractere especial (!@#$%&*).*")
+                nova_senha = st.text_input("🔑 Crie sua Nova Senha:", type="password", key="login_nova_senha_input")
+                confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password", key="login_confirma_senha_input")
                 
                 if st.button("✅ Cadastrar Senha e Entrar", use_container_width=True):
                     valida_comp, msg_comp = validar_complexidade_senha(nova_senha)
-                    if not valida_comp:
+                    if not nova_senha.strip() or not confirma_senha.strip():
+                        st.warning("⚠️ Preencha os dois campos de senha para continuar.")
+                    elif not valida_comp:
                         st.warning(f"⚠️ {msg_comp}")
                     elif nova_senha.strip() != confirma_senha.strip():
                         st.error("❌ As senhas digitadas não conferem. Digite novamente.")
