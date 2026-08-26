@@ -78,7 +78,7 @@ def inicializar_banco_supabase_uma_vez():
 inicializar_banco_supabase_uma_vez()
 
 # -----------------------------------------------------------------------------
-# 🔐 GERENCIAMENTO DE SENHAS INDIVIDUAIS E USUÁRIOS (SUPABASE + HASH)
+# 🔐 GERENCIAMENTO DE SENHAS INDIVIDUAIS E USUÁRIOS (SUPABASE + HASH PERMANENTE)
 # -----------------------------------------------------------------------------
 CARGOS_NATIVOS = {
     "flavia.godoi@bks.com.br": "Administrador/Programador",
@@ -87,8 +87,6 @@ CARGOS_NATIVOS = {
     "neto.duarte@bks.com.br": "Gerente",
     "thaina.oliveira@bks.com.br": "Administrador"
 }
-
-ARQUIVO_USUARIOS = "usuarios_aprovados.csv"
 
 def gerar_hash_senha(senha: str) -> str:
     """Gera hash SHA-256 seguro para armazenamento de senhas."""
@@ -111,41 +109,30 @@ def validar_complexidade_senha(senha: str):
         return False, "A senha deve conter pelo menos um CARACTERE ESPECIAL (ex: @, #, $, !, %, *)."
     return True, ""
 
-@st.cache_data(show_spinner=False)
 def carregar_usuarios():
-    """Carrega a lista de usuários salvos mantendo a hierarquia corporativa dos administradores."""
+    """Carrega os usuários salvos PERMANENTEMENTE no Supabase + Administradores Nativos."""
     usuarios = {}
     
-    if os.path.exists(ARQUIVO_USUARIOS):
+    # 1. Busca todos os e-mails cadastrados no banco Supabase
+    engine = obter_conexao_banco()
+    if engine:
         try:
-            with open(ARQUIVO_USUARIOS, mode='r', encoding='utf-8') as f:
-                reader = csv.reader(f, delimiter=';')
-                for row in reader:
-                    if row and len(row) >= 1 and row[0].strip():
-                        email = row[0].strip().lower()
-                        cargo = row[1].strip() if len(row) >= 2 else "Operador"
-                        usuarios[email] = cargo
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT email, cargo FROM usuarios_auth;")).fetchall()
+                for r in res:
+                    if r[0]:
+                        usuarios[r[0].strip().lower()] = r[1] if r[1] else "Operador"
         except Exception:
             pass
 
+    # 2. Garante os Administradores fixos
     for email_adm, cargo_adm in CARGOS_NATIVOS.items():
         usuarios[email_adm.lower()] = cargo_adm
 
     return usuarios
 
-def salvar_usuarios_csv(dict_usuarios):
-    """Grava os usuários e papéis no arquivo local e limpa o cache."""
-    try:
-        with open(ARQUIVO_USUARIOS, mode='w', encoding='utf-8', newline='') as f:
-            writer = csv.writer(f, delimiter=';')
-            for email, cargo in dict_usuarios.items():
-                writer.writerow([email, cargo])
-        carregar_usuarios.clear()
-    except Exception:
-        st.error("Erro interno ao atualizar permissões locais.")
-
 def adicionar_novo_usuario(email_input, cargo_escolhido):
-    """Adiciona um novo e-mail para autorização."""
+    """Adiciona um novo e-mail PERMANENTEMENTE no banco de dados Supabase."""
     email_clean = email_input.strip().lower()
     if not email_clean:
         return False, "O e-mail não pode estar em branco."
@@ -154,33 +141,55 @@ def adicionar_novo_usuario(email_input, cargo_escolhido):
     if email_clean in dict_atual:
         return False, "Este e-mail já está cadastrado!"
 
-    dict_atual[email_clean] = cargo_escolhido
-    salvar_usuarios_csv(dict_atual)
-    return True, f"Usuário {email_clean} ({cargo_escolhido}) cadastrado com sucesso!"
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            criado_em = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with engine.connect() as conn:
+                conn.execute(text('''
+                    INSERT INTO usuarios_auth (email, senha_hash, cargo, criado_em)
+                    VALUES (:email, '', :cargo, :criado_em)
+                    ON CONFLICT (email) DO UPDATE SET cargo = EXCLUDED.cargo;
+                '''), {"email": email_clean, "cargo": cargo_escolhido, "criado_em": criado_em})
+                conn.commit()
+                return True, f"Usuário {email_clean} ({cargo_escolhido}) cadastrado permanentemente com sucesso!"
+        except Exception:
+            return False, "Erro ao gravar usuário no banco de dados."
+            
+    return False, "Falha de conexão com o banco de dados."
 
 def remover_usuario(email_remover):
-    """Remove um usuário cadastrado e revoga suas credenciais no banco de dados."""
+    """Remove um usuário do banco Supabase definitivamente."""
     email_clean = email_remover.strip().lower()
-    dict_atual = carregar_usuarios()
     
     if email_clean in [a.lower() for a in CARGOS_NATIVOS.keys()]:
         return False, "E-mail protegido contra exclusão."
 
-    if email_clean in dict_atual:
-        del dict_atual[email_clean]
-        salvar_usuarios_csv(dict_atual)
-        
-        engine = obter_conexao_banco()
-        if engine:
-            try:
-                with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM usuarios_auth WHERE LOWER(email) = LOWER(:email)"), {"email": email_clean})
-                    conn.commit()
-            except Exception:
-                pass
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("DELETE FROM usuarios_auth WHERE LOWER(email) = LOWER(:email)"), {"email": email_clean})
+                conn.commit()
+                return True, f"Acesso do e-mail {email_clean} revogado com sucesso!"
+        except Exception:
+            pass
 
-        return True, f"Acesso do e-mail {email_clean} revogado com sucesso."
-    return False, "Usuário não localizado."
+    return False, "Usuário não localizado no banco."
+
+def resetar_senha_usuario_esqueci(email: str):
+    """Limpa a senha do usuário no banco permitindo recriá-la na tela inicial."""
+    email_clean = email.strip().lower()
+    engine = obter_conexao_banco()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("UPDATE usuarios_auth SET senha_hash = '' WHERE LOWER(email) = LOWER(:email)"), {"email": email_clean})
+                conn.commit()
+                return True
+        except Exception:
+            pass
+    return False
 
 def verificar_email_autorizado(email: str) -> bool:
     """Verifica se o e-mail possui permissão de login no sistema."""
@@ -215,10 +224,12 @@ def cadastrar_senha_usuario_banco(email: str, senha_plana: str, cargo: str):
     if engine:
         try:
             with engine.connect() as conn:
-                conn.execute(text("DELETE FROM usuarios_auth WHERE LOWER(email) = LOWER(:email)"), {"email": email_clean})
                 conn.execute(text('''
                     INSERT INTO usuarios_auth (email, senha_hash, cargo, criado_em)
-                    VALUES (:email, :senha_hash, :cargo, :criado_em);
+                    VALUES (:email, :senha_hash, :cargo, :criado_em)
+                    ON CONFLICT (email) DO UPDATE SET 
+                        senha_hash = EXCLUDED.senha_hash,
+                        cargo = EXCLUDED.cargo;
                 '''), {"email": email_clean, "senha_hash": senha_h, "cargo": cargo, "criado_em": criado_em})
                 conn.commit()
                 return True
@@ -868,7 +879,7 @@ if not st.session_state.autenticado:
             senha_hash_banco, cargo_banco = buscar_senha_usuario_banco(email_atual)
             
             if not senha_hash_banco:
-                st.info("🆕 **Primeiro Acesso Detectado:** Crie sua senha individual abaixo.")
+                st.info("🆕 **Primeiro Acesso ou Redefinição Detectada:** Crie sua senha individual abaixo.")
                 st.caption("📌 *Requisitos: Mínimo 8 dígitos, contendo maiúscula, minúscula, número e caractere especial.*")
                 nova_senha = st.text_input("🔑 Crie sua Nova Senha:", type="password")
                 confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password")
@@ -889,7 +900,14 @@ if not st.session_state.autenticado:
                             st.rerun()
             else:
                 senha_digitada = st.text_input("🔑 Senha de Acesso Individual:", type="password")
-                if st.button("🔓 Entrar no Sistema", use_container_width=True):
+                
+                col_btn_in1, col_btn_in2 = st.columns([2, 1])
+                with col_btn_in1:
+                    btn_entrar = st.button("🔓 Entrar no Sistema", use_container_width=True)
+                with col_btn_in2:
+                    btn_esquece_senha = st.button("❓ Esqueci Minha Senha", use_container_width=True)
+
+                if btn_entrar:
                     hash_digitada = gerar_hash_senha(senha_digitada)
                     if hash_digitada == senha_hash_banco or (SENHA_GERAL and senha_digitada.strip() == SENHA_GERAL):
                         st.session_state.autenticado = True
@@ -898,6 +916,11 @@ if not st.session_state.autenticado:
                         st.rerun()
                     else:
                         st.error("❌ Senha incorreta! Verifique seus dados de acesso.")
+                        
+                if btn_esquece_senha:
+                    if resetar_senha_usuario_esqueci(email_atual):
+                        st.success("🔄 Solicitação de redefinição confirmada! Crie sua nova senha abaixo.")
+                        st.rerun()
 
     st.stop()
 
@@ -1026,7 +1049,7 @@ with st.sidebar:
     st.markdown("<br><hr style='margin-top:15px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
     st.markdown("""
         <div style="text-align: center; margin-top: 15px; margin-bottom: 15px;">
-            <span style="font-size: 11px; color: #666666;">⚡ Desenvolvido por Flávia Godoi (08/2026)</span><br>
+            <span style="font-size: 11px; color: #666666;">⚡ Desenvolvido por Flávia Godoi (08/2026) - via AI</span><br>
             <span style="font-size: 11px; font-style: italic; color: #888888;">BKS Compliance Tech & Inovação</span>
         </div>
     """, unsafe_allow_html=True)
