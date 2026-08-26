@@ -296,7 +296,7 @@ def validar_cpf(cpf: str) -> bool:
     resto = (soma * 10) % 11
     digito_2 = 0 if resto == 10 else resto
     if digito_2 != int(cpf_limpo[10]):
-        return False, ""
+        return False
         
     return True
 
@@ -881,10 +881,14 @@ if not st.session_state.autenticado:
             if not senha_hash_banco:
                 st.info("🆕 **Primeiro Acesso ou Redefinição Detectada:** Crie sua senha individual abaixo.")
                 st.caption("📌 *Requisitos: Mínimo 8 dígitos, contendo maiúscula, minúscula, número e caractere especial (!@#$%&*).*")
-                nova_senha = st.text_input("🔑 Crie sua Nova Senha:", type="password", key="login_nova_senha_input")
-                confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password", key="login_confirma_senha_input")
                 
-                if st.button("✅ Cadastrar Senha e Entrar", use_container_width=True):
+                # Form para envio unificado de ambos os campos de senha
+                with st.form("form_cadastrar_nova_senha", clear_on_submit=False):
+                    nova_senha = st.text_input("🔑 Crie sua Nova Senha:", type="password")
+                    confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password")
+                    btn_salvar_senha_primeiro = st.form_submit_button("✅ Cadastrar Senha e Entrar", use_container_width=True)
+
+                if btn_salvar_senha_primeiro:
                     valida_comp, msg_comp = validar_complexidade_senha(nova_senha)
                     if not nova_senha.strip() or not confirma_senha.strip():
                         st.warning("⚠️ Preencha os dois campos de senha para continuar.")
