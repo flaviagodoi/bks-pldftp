@@ -109,11 +109,11 @@ def validar_complexidade_senha(senha: str):
         return False, "A senha deve conter pelo menos um CARACTERE ESPECIAL (!@#$%&*)."
     return True, ""
 
+@st.cache_data(ttl=600, show_spinner=False)
 def carregar_usuarios():
-    """Carrega os usuários salvos PERMANENTEMENTE no Supabase + Administradores Nativos."""
+    """Carrega os usuários salvos no Supabase com cache em memória por 10 minutos."""
     usuarios = {}
     
-    # 1. Busca todos os e-mails cadastrados no banco Supabase
     engine = obter_conexao_banco()
     if engine:
         try:
@@ -125,14 +125,13 @@ def carregar_usuarios():
         except Exception:
             pass
 
-    # 2. Garante os Administradores fixos
     for email_adm, cargo_adm in CARGOS_NATIVOS.items():
         usuarios[email_adm.lower()] = cargo_adm
 
     return usuarios
 
 def adicionar_novo_usuario(email_input, cargo_escolhido):
-    """Adiciona um novo e-mail PERMANENTEMENTE no banco de dados Supabase."""
+    """Adiciona um novo e-mail no Supabase e limpa o cache de usuários."""
     email_clean = email_input.strip().lower()
     if not email_clean:
         return False, "O e-mail não pode estar em branco."
@@ -152,6 +151,7 @@ def adicionar_novo_usuario(email_input, cargo_escolhido):
                     ON CONFLICT (email) DO UPDATE SET cargo = EXCLUDED.cargo;
                 '''), {"email": email_clean, "cargo": cargo_escolhido, "criado_em": criado_em})
                 conn.commit()
+                carregar_usuarios.clear()
                 return True, f"Usuário {email_clean} ({cargo_escolhido}) cadastrado permanentemente com sucesso!"
         except Exception:
             return False, "Erro ao gravar usuário no banco de dados."
@@ -159,7 +159,7 @@ def adicionar_novo_usuario(email_input, cargo_escolhido):
     return False, "Falha de conexão com o banco de dados."
 
 def remover_usuario(email_remover):
-    """Remove um usuário do banco Supabase definitivamente."""
+    """Remove um usuário do banco Supabase e limpa o cache de usuários."""
     email_clean = email_remover.strip().lower()
     
     if email_clean in [a.lower() for a in CARGOS_NATIVOS.keys()]:
@@ -171,6 +171,7 @@ def remover_usuario(email_remover):
             with engine.connect() as conn:
                 conn.execute(text("DELETE FROM usuarios_auth WHERE LOWER(email) = LOWER(:email)"), {"email": email_clean})
                 conn.commit()
+                carregar_usuarios.clear()
                 return True, f"Acesso do e-mail {email_clean} revogado com sucesso!"
         except Exception:
             pass
@@ -232,6 +233,7 @@ def cadastrar_senha_usuario_banco(email: str, senha_plana: str, cargo: str):
                         cargo = EXCLUDED.cargo;
                 '''), {"email": email_clean, "senha_hash": senha_h, "cargo": cargo, "criado_em": criado_em})
                 conn.commit()
+                carregar_usuarios.clear()
                 return True
         except Exception:
             st.error("Erro ao salvar senha no banco seguro. Tente novamente.")
@@ -1391,7 +1393,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     )
 
 # =============================================================================
-# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS
+# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS (LAZY LOADING DE DADOS)
 # =============================================================================
 elif opcao_menu == "📊 Gestão de Vencimentos":
     st.title("📊 Gestão de Vencimentos de Relatórios PLD/FTP")
