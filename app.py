@@ -479,7 +479,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + MAPEAMENTO NATIVO)
+# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + MAPEAMENTO NATIVO + DESAMBIGUAÇÃO)
 # -----------------------------------------------------------------------------
 BASE_PEP_NATIVA = {
     "GAUDENCIO GONCALVES DE LUCENA": {
@@ -579,16 +579,20 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
     return None
 
-def buscar_web_robusta(nome):
-    """Busca flexível e abrangente de dados públicos na Wikipédia e buscadores Web."""
+def buscar_web_robusta(nome, cpf=""):
+    """Busca web filtrada por CPF e localização para evitar falsos positivos de homônimos."""
     texto_compilado = ""
     nome_limpo = nome.strip()
     nome_norm = normalizar_texto(nome_limpo)
     partes = nome_norm.split()
     
+    cpf_limpo = re.sub(r'\D', '', str(cpf))
+    miolo_cpf = cpf_limpo[3:9] if len(cpf_limpo) == 11 else ""
+
     queries = [
-        f'"{nome_limpo}"',
-        f'"{nome_limpo}" politico OR prefeita OR prefeito OR vice OR mae OR pai'
+        f'"{nome_limpo}" "{cpf_limpo}"',
+        f'"{nome_limpo}" "{formatar_cpf_estetico(cpf_limpo)}"',
+        f'"{nome_limpo}" politico OR prefeita OR prefeito OR vice'
     ]
     if len(partes) >= 3:
         queries.append(f'"{partes[0]} {partes[-1]}" politico OR prefeita OR vice')
@@ -623,23 +627,18 @@ def buscar_web_robusta(nome):
         except Exception:
             pass
 
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(q, max_results=3))
-                for r in results:
-                    texto_compilado += f" {r.get('title', '')} {r.get('body', '')}"
-        except Exception:
-            pass
-
     return texto_compilado
 
-def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
-    """Analisa cargos públicos e rastreia termos de parentesco para enquadramento."""
+def analisar_proximidade_cargo(texto_bruto, nome_pesquisado, cpf=""):
+    """Analisa cargos públicos e aplica trava anti-homônimos se o CPF não for vinculado no texto."""
     texto_norm = normalizar_texto(texto_bruto)
     nome_norm = normalizar_texto(nome_pesquisado)
 
     if not texto_norm or not nome_norm:
         return None, None
+
+    cpf_limpo = re.sub(r'\D', '', str(cpf))
+    miolo_cpf = cpf_limpo[3:9] if len(cpf_limpo) == 11 else ""
 
     cargos_pep = [
         "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
@@ -666,9 +665,11 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
 
     partes = nome_norm.split()
     variantes_nome = [nome_norm]
-    if len(partes) >= 3:
-        variantes_nome.append(f"{partes[0]} {partes[-1]}")
-        variantes_nome.append(f"{partes[0]} {partes[-2]} {partes[-1]}")
+
+    # Trava anti-homônimo para nomes curtos/comuns se não tiver miolo de CPF na web
+    if miolo_cpf and miolo_cpf not in texto_norm:
+        if len(partes) <= 2:
+            return None, None
 
     for var in variantes_nome:
         indices = [m.start() for m in re.finditer(re.escape(var), texto_norm)]
@@ -687,7 +688,7 @@ def analisar_proximidade_cargo(texto_bruto, nome_pesquisado):
     return None, None
 
 def verificar_pep_completo(nome_input, cpf_input):
-    """Mecanismo Unificado que diferencia PEP DIRETO de PEP INDIRETO."""
+    """Mecanismo Unificado que diferencia PEP DIRETO de PEP INDIRETO com blindagem de CPF."""
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
@@ -696,6 +697,7 @@ def verificar_pep_completo(nome_input, cpf_input):
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
+    # 1. Prioridade Absoluta: Base Oficial CGU
     match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_planilha:
         return {
@@ -706,8 +708,9 @@ def verificar_pep_completo(nome_input, cpf_input):
             "origem": f"Base Oficial de PEPs ({match_planilha['detalhe']})"
         }
 
-    texto_web_direto = buscar_web_robusta(nome_limpo)
-    tipo_web, cargo_web = analisar_proximidade_cargo(texto_web_direto, nome_limpo)
+    # 2. Busca Web filtrada com CPF contra Homônimos
+    texto_web_direto = buscar_web_robusta(nome_limpo, cpf_input)
+    tipo_web, cargo_web = analisar_proximidade_cargo(texto_web_direto, nome_limpo, cpf_input)
     
     if cargo_web:
         if tipo_web == "FAMILIAR":
@@ -728,6 +731,7 @@ def verificar_pep_completo(nome_input, cpf_input):
                 "origem": "Pesquisa em Portais Públicos e Notícias Web"
             }
 
+    # 3. Mapeamento de Sufixos Familiares (Júnior, Filho, Neto, etc)
     sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
     palavras = nome_norm.split()
     
@@ -750,26 +754,6 @@ def verificar_pep_completo(nome_input, cpf_input):
                 "detalhe": f"Vínculo Direto com PEP Mapeado na Base Oficial da CGU ({nome_pai_orig})",
                 "origem": f"Mapeamento de Parentesco e Base Oficial da CGU ({nome_pai_orig})"
             }
-
-        nomes_pai_testar = [nome_pai_orig]
-        partes_pai = normalizar_texto(nome_pai_orig).split()
-        if len(partes_pai) >= 3:
-            nomes_pai_testar.append(f"{partes_pai[0].capitalize()} {partes_pai[-1].capitalize()}")
-
-        for n_pai in nomes_pai_testar:
-            texto_web_pai = buscar_web_robusta(n_pai)
-            _, cargo_pai_web = analisar_proximidade_cargo(texto_web_pai, n_pai)
-
-            if cargo_pai_web:
-                return {
-                    "tipo": "FAMILIAR",
-                    "sufixo": sufixo_encontrado,
-                    "nome_parente": n_pai,
-                    "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {cargo_pai_web})",
-                    "orgao": "Administração Pública / Registro Histórico",
-                    "detalhe": f"Vínculo Direto de Parentesco com Agente Político Mapeado na Web ({n_pai})",
-                    "origem": f"Mapeamento de Vínculos Familiares em Fontes Públicas ({n_pai})"
-                }
 
     return None
 
