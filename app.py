@@ -1119,9 +1119,19 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
         st.markdown("### 📋 Dados do Pesquisado")
         col1, col2 = st.columns(2)
         with col1:
-            nome_input = st.text_input("👉 Nome Completo do Pesquisado", value=val_nome_def, placeholder="Ex: João da Silva")
+            nome_input = st.text_input(
+                "👉 Nome Completo do Pesquisado", 
+                value=val_nome_def, 
+                placeholder="Ex: João da Silva",
+                key="input_consulta_nome"
+            )
         with col2:
-            cpf_input = st.text_input("👉 CPF do Pesquisado (Números ou Formatado)", value=val_cpf_def, placeholder="000.000.000-00")
+            cpf_input = st.text_input(
+                "👉 CPF do Pesquisado (Números ou Formatado)", 
+                value=val_cpf_def, 
+                placeholder="000.000.000-00",
+                key="input_consulta_cpf"
+            )
 
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
@@ -1590,6 +1600,10 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                         if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
                             st.session_state.renovar_nome = item["Nome Completo"]
                             st.session_state.renovar_cpf = item["CPF_Real"]
+                            
+                            st.session_state["input_consulta_nome"] = item["Nome Completo"]
+                            st.session_state["input_consulta_cpf"] = formatar_cpf_estetico(item["CPF_Real"])
+                            
                             st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
                             st.rerun()
                         
