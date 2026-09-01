@@ -571,6 +571,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
                         if miolo_cpf_input not in cpf_row_numeros:
                             continue
 
+                    # EXTRAÇÃO EXATA: Coluna D (Descrição Função) e Coluna F (Nome Órgão)
                     cargo = (row.get('Descrição_Função') or row.get('DESCRICAO_FUNCAO') or 
                              row.get('DS_FUNCAO') or row.get('Função') or row.get('Cargo') or "Agente Político / Função Pública")
                     
@@ -588,7 +589,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
     return None
 
 def buscar_na_planilha_tse(nome_input):
-    """Busca no TSE filtrando apenas ELEITOS e ignorando não eleitos, nulos e renunciantes."""
+    """Busca no TSE filtrando apenas ELEITOS e extraindo Cargo, Cidade e Estado."""
     caminho_tse = identificar_arquivo_tse()
     if not caminho_tse:
         return None
@@ -613,13 +614,15 @@ def buscar_na_planilha_tse(nome_input):
                     
                     if any(st_ok in sit_tot for st_ok in status_eleito_validos):
                         cargo = row.get('DS_CARGO') or "Agente Político Eleito"
-                        municipio = row.get('NM_UE') or row.get('SG_UF') or "Brasil"
+                        municipio = row.get('NM_UE') or "Município Desconhecido"
+                        estado = row.get('SG_UF') or "BR"
                         
                         return {
-                            "cargo": f"Agente Político Eleito - {cargo} ({municipio})",
-                            "orgao": f"Tribunal Superior Eleitoral (TSE) - {municipio}",
-                            "detalhe": f"Candidatura Eleita / Confirmada na Base do TSE ({sit_tot})",
-                            "municipio": municipio
+                            "cargo": f"Agente Político Eleito - {cargo} ({municipio} - {estado})",
+                            "orgao": f"Prefeitura / Câmara Municipal de {municipio} ({estado})",
+                            "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {municipio}/{estado})",
+                            "municipio": municipio,
+                            "estado": estado
                         }
     except Exception:
         pass
@@ -632,7 +635,6 @@ def buscar_web_tripla_fonte(nome, cpf=""):
     nome_norm = normalizar_texto(nome_limpo)
     
     cpf_limpo = re.sub(r'\D', '', str(cpf))
-    miolo_cpf = cpf_limpo[3:9] if len(cpf_limpo) == 11 else ""
 
     queries = [
         f'"{nome_limpo}" "{cpf_limpo}"',
@@ -712,7 +714,7 @@ def verificar_pep_completo(nome_input, cpf_input):
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
-    # 1. Base Oficial da CGU
+    # 1. Base Oficial da CGU (Função na Coluna D + Órgão na Coluna F)
     match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_cgu:
         return {
@@ -723,7 +725,7 @@ def verificar_pep_completo(nome_input, cpf_input):
             "origem": f"Base Oficial de PEPs ({match_cgu['detalhe']})"
         }
 
-    # 2. Base Oficial do TSE
+    # 2. Base Oficial do TSE (Cargo + Cidade + Estado)
     match_tse = buscar_na_planilha_tse(nome_limpo)
     if match_tse:
         texto_confirma_tse = buscar_web_tripla_fonte(f"{nome_limpo} {match_tse['municipio']}", cpf_input)
