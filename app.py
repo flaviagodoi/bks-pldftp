@@ -819,12 +819,16 @@ if "senha_hash_logada" not in st.session_state:
     st.session_state.senha_hash_logada = None
 if "login_email_confirmado" not in st.session_state:
     st.session_state.login_email_confirmado = None
-if "renovar_nome" not in st.session_state:
-    st.session_state.renovar_nome = ""
-if "renovar_cpf" not in st.session_state:
-    st.session_state.renovar_cpf = ""
+if "renovar_auto_exec" not in st.session_state:
+    st.session_state.renovar_auto_exec = False
 if "opcao_menu_selecionada" not in st.session_state:
     st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
+
+# Inicializa as variáveis de input se não existirem
+if "input_consulta_nome" not in st.session_state:
+    st.session_state["input_consulta_nome"] = ""
+if "input_consulta_cpf" not in st.session_state:
+    st.session_state["input_consulta_cpf"] = ""
 
 if st.session_state.autenticado:
     st.markdown("""
@@ -1024,7 +1028,6 @@ with st.sidebar:
         "⚙️ Gerenciador de Usuários"
     ]
 
-    # Garante a sincronia da seleção no menu
     idx_menu_def = 0
     if st.session_state.opcao_menu_selecionada in opcoes_menu:
         idx_menu_def = opcoes_menu.index(st.session_state.opcao_menu_selecionada)
@@ -1069,8 +1072,7 @@ with st.sidebar:
         st.session_state.email_logado = None
         st.session_state.senha_hash_logada = None
         st.session_state.login_email_confirmado = None
-        st.session_state.renovar_nome = ""
-        st.session_state.renovar_cpf = ""
+        st.session_state.renovar_auto_exec = False
         st.rerun()
 
     st.markdown("<br><hr style='margin-top:15px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
@@ -1112,24 +1114,29 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
     st.caption("Pesquisa automatizada em portais de transparência e bases públicas para enquadramento regulatório.")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    val_nome_def = st.session_state.get("renovar_nome", "")
-    val_cpf_def = formatar_cpf_estetico(st.session_state.get("renovar_cpf", "")) if st.session_state.get("renovar_cpf", "") else ""
-
     with st.container():
         st.markdown("### 📋 Dados do Pesquisado")
         col1, col2 = st.columns(2)
         with col1:
-            nome_input = st.text_input("👉 Nome Completo do Pesquisado", value=val_nome_def, placeholder="Ex: João da Silva")
+            nome_input = st.text_input(
+                "👉 Nome Completo do Pesquisado", 
+                placeholder="Ex: João da Silva",
+                key="input_consulta_nome"
+            )
         with col2:
-            cpf_input = st.text_input("👉 CPF do Pesquisado (Números ou Formatado)", value=val_cpf_def, placeholder="000.000.000-00")
+            cpf_input = st.text_input(
+                "👉 CPF do Pesquisado (Números ou Formatado)", 
+                placeholder="000.000.000-00",
+                key="input_consulta_cpf"
+            )
 
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
-    if btn_pesquisar:
-        # Limpa os dados em memória para evitar reaproveitamento acidental futuro
-        st.session_state.renovar_nome = ""
-        st.session_state.renovar_cpf = ""
+    auto_rodar = st.session_state.get("renovar_auto_exec", False)
+
+    if btn_pesquisar or auto_rodar:
+        st.session_state.renovar_auto_exec = False
         
         cpf_valido_bool = validar_cpf(cpf_input)
         cpf_formatado_input = formatar_cpf_estetico(cpf_input)
@@ -1586,10 +1593,11 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     with st.popover("⚡ Opções", use_container_width=True):
                         st.caption(f"Registro: **{item['Nome Completo']}**")
                         
-                        # REDIRECIONAMENTO LIMPO: GRAVA OS DADOS E NAVEGA PARA A TELA DE CONSULTA
+                        # ATUALIZAÇÃO DIRETA NO ESTADO E DISPARO DE EXECUÇÃO AUTOMÁTICA
                         if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
-                            st.session_state.renovar_nome = item["Nome Completo"]
-                            st.session_state.renovar_cpf = item["CPF_Real"]
+                            st.session_state["input_consulta_nome"] = item["Nome Completo"]
+                            st.session_state["input_consulta_cpf"] = formatar_cpf_estetico(item["CPF_Real"])
+                            st.session_state.renovar_auto_exec = True
                             st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
                             st.rerun()
                         
