@@ -819,16 +819,37 @@ if "senha_hash_logada" not in st.session_state:
     st.session_state.senha_hash_logada = None
 if "login_email_confirmado" not in st.session_state:
     st.session_state.login_email_confirmado = None
-if "renovar_auto_exec" not in st.session_state:
-    st.session_state.renovar_auto_exec = False
-if "opcao_menu_selecionada" not in st.session_state:
-    st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
 
-# Inicializa as variáveis de input se não existirem
-if "input_consulta_nome" not in st.session_state:
-    st.session_state["input_consulta_nome"] = ""
-if "input_consulta_cpf" not in st.session_state:
-    st.session_state["input_consulta_cpf"] = ""
+# JANELA MODAL DE RENOVAÇÃO DIRETA
+@st.dialog("🔄 Renovação Rápida de Laudo PLD/FTP")
+def abrir_modal_renovacao(nome, cpf):
+    st.write(f"Você está renovando o laudo de: **{nome}**")
+    st.write(f"CPF: **{formatar_cpf_estetico(cpf)}**")
+    st.markdown("---")
+    
+    if st.button("🚀 Confirmar e Gerar Novo Laudo", type="primary", use_container_width=True):
+        with st.spinner("Revalidando dados nas bases públicas..."):
+            res_pep = verificar_pep_completo(nome, cpf)
+            tz_bsb = timezone(timedelta(hours=-3))
+            agora_dt = datetime.now(tz_bsb)
+            
+            if res_pep:
+                status_banco = "SIM"
+                prox_atualizacao = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
+            else:
+                status_banco = "NÃO"
+                prox_atualizacao = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
+                
+            registrar_vencimento(
+                nome=nome,
+                cpf_raw=cpf,
+                email_operador=st.session_state.email_logado,
+                status_pep=status_banco,
+                data_emissao_dt=agora_dt,
+                data_vencimento_str=prox_atualizacao
+            )
+            st.success("✅ Laudo renovado com sucesso e prazo estendido no sistema!")
+            st.rerun()
 
 if st.session_state.autenticado:
     st.markdown("""
@@ -1028,12 +1049,7 @@ with st.sidebar:
         "⚙️ Gerenciador de Usuários"
     ]
 
-    idx_menu_def = 0
-    if st.session_state.opcao_menu_selecionada in opcoes_menu:
-        idx_menu_def = opcoes_menu.index(st.session_state.opcao_menu_selecionada)
-
-    opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=idx_menu_def, key="nav_radio_menu")
-    st.session_state.opcao_menu_selecionada = opcao_menu
+    opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=0)
     st.markdown("---")
     
     # --- BLOCO DETALHADO DAS BASES LOCAIS DA CGU E TSE (ELEIÇÕES MUNICIPAIS 2024) ---
@@ -1059,7 +1075,7 @@ with st.sidebar:
         st.caption("""
             **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
             
-            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitucional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
+            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitutional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
             2. **Armazenamento Seguro:** O histórico de laudos e vencimentos é mantido em banco de dados corporativo criptografado (Supabase via SSL/TLS), sem armazenamento temporário em máquinas operacionais.
             3. **Minimização de Riscos:** As exibições públicas utilizam mascaramento parcial de CPF (`123.***.***-89`), reduzindo a exposição em conformidade com as diretrizes da ANPD.
             4. **Confidencialidade:** Os dados pesquisados destinam-se exclusivamente ao respaldo regulatório corporativo, sendo vedada a comercialização ou compartilhamento não autorizado.
@@ -1072,7 +1088,6 @@ with st.sidebar:
         st.session_state.email_logado = None
         st.session_state.senha_hash_logada = None
         st.session_state.login_email_confirmado = None
-        st.session_state.renovar_auto_exec = False
         st.rerun()
 
     st.markdown("<br><hr style='margin-top:15px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
@@ -1118,26 +1133,14 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
         st.markdown("### 📋 Dados do Pesquisado")
         col1, col2 = st.columns(2)
         with col1:
-            nome_input = st.text_input(
-                "👉 Nome Completo do Pesquisado", 
-                placeholder="Ex: João da Silva",
-                key="input_consulta_nome"
-            )
+            nome_input = st.text_input("👉 Nome Completo do Pesquisado", placeholder="Ex: João da Silva")
         with col2:
-            cpf_input = st.text_input(
-                "👉 CPF do Pesquisado (Números ou Formatado)", 
-                placeholder="000.000.000-00",
-                key="input_consulta_cpf"
-            )
+            cpf_input = st.text_input("👉 CPF do Pesquisado (Números ou Formatado)", placeholder="000.000.000-00")
 
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
-    auto_rodar = st.session_state.get("renovar_auto_exec", False)
-
-    if btn_pesquisar or auto_rodar:
-        st.session_state.renovar_auto_exec = False
-        
+    if btn_pesquisar:
         cpf_valido_bool = validar_cpf(cpf_input)
         cpf_formatado_input = formatar_cpf_estetico(cpf_input)
         
@@ -1593,13 +1596,9 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     with st.popover("⚡ Opções", use_container_width=True):
                         st.caption(f"Registro: **{item['Nome Completo']}**")
                         
-                        # ATUALIZAÇÃO DIRETA NO ESTADO E DISPARO DE EXECUÇÃO AUTOMÁTICA
+                        # RENOVAÇÃO DIRETA E SEGURA VIA JANELA MODAL ISOLADA
                         if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
-                            st.session_state["input_consulta_nome"] = item["Nome Completo"]
-                            st.session_state["input_consulta_cpf"] = formatar_cpf_estetico(item["CPF_Real"])
-                            st.session_state.renovar_auto_exec = True
-                            st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
-                            st.rerun()
+                            abrir_modal_renovacao(item["Nome Completo"], item["CPF_Real"])
                         
                         if st.button("🚫 Encerrar / Excluir Registro", key=f"pop_encerrar_{idx}", use_container_width=True):
                             ok_del, msg_del = remover_vencimento(item["CPF_Real"])
