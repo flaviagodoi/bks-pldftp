@@ -960,7 +960,7 @@ with st.sidebar:
     opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=0)
     st.markdown("---")
     
-    # --- NOVO BLOCO DETALHADO DAS BASES LOCAIS DA CGU E TSE ---
+    # --- BLOCO DETALHADO DAS BASES LOCAIS DA CGU E TSE (ELEIÇÕES MUNICIPAIS 2024) ---
     arq_pep = identificar_arquivo_pep()
     arq_tse = identificar_arquivo_tse()
     
@@ -972,10 +972,10 @@ with st.sidebar:
         st.info("🌐 **Base PEP (CGU):** Modo Web Ativo")
 
     if arq_tse:
-        st.success("🗳️ **Consulta Candidatos Eleitos (TSE):** Ativa")
-        st.caption("⚖️ *Fonte: Tribunal Superior Eleitoral*")
+        st.success("🗳️ **Consulta Candidatos Eleitos (TSE 2024):** Ativa")
+        st.caption("⚖️ *Fonte: Tribunal Superior Eleitoral (Eleições Municipais 2024)*")
     else:
-        st.caption("🗳️ *Base TSE: Não carregada localmente*")
+        st.caption("🗳️ *Base TSE 2024: Não carregada localmente*")
 
     st.markdown("---")
 
