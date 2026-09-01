@@ -596,7 +596,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
     return None
 
 def buscar_na_planilha_tse(nome_input):
-    """Busca no TSE filtrando apenas ELEITOS e extraindo Cargo, Cidade e Estado."""
+    """Busca ultra-flexível no TSE para garantir extração de Cargo, Cidade e Estado independentemente das minúsculas do cabeçalho."""
     caminho_tse = identificar_arquivo_tse()
     if not caminho_tse:
         return None
@@ -615,21 +615,28 @@ def buscar_na_planilha_tse(nome_input):
 
             reader = csv.DictReader(f, delimiter=sep)
             for row in reader:
-                nome_cand = row.get('NM_CANDIDATO') or row.get('Nome') or ""
+                # Normalização de Chaves do Dicionário
+                row_clean = {normalizar_texto(k): str(v).strip() for k, v in row.items() if k}
+
+                nome_cand = (row_clean.get("nm_candidato") or row_clean.get("nome_candidato") or 
+                             row_clean.get("nm_urna_candidato") or row_clean.get("nome") or "")
+                
                 if normalizar_texto(nome_cand) == nome_norm:
-                    sit_tot = (row.get('DS_SIT_TOT_TURNO') or row.get('DS_SITUACAO_CANDIDATURA') or "").upper()
+                    sit_tot = (row_clean.get("ds_sit_tot_turno") or row_clean.get("ds_situacao_candidatura") or 
+                               row_clean.get("situacao") or "").upper()
                     
-                    if any(st_ok in sit_tot for st_ok in status_eleito_validos):
-                        cargo = row.get('DS_CARGO') or "Agente Político Eleito"
-                        municipio = row.get('NM_UE') or "Município Não Informado"
-                        estado = row.get('SG_UF') or "BR"
+                    # Filtra apenas se for ELEITO ou se a coluna não existir (caso o filtro já tenha sido feito no Excel)
+                    if not sit_tot or any(st_ok in sit_tot for st_ok in status_eleito_validos):
+                        cargo = (row_clean.get("ds_cargo") or row_clean.get("cargo") or "Agente Político Eleito")
+                        municipio = (row_clean.get("nm_ue") or row_clean.get("municipio") or row_clean.get("cidade") or "Município Não Informado")
+                        estado = (row_clean.get("sg_uf") or row_clean.get("uf") or row_clean.get("estado") or "BR")
                         
                         return {
-                            "cargo": str(cargo).strip().title(),
-                            "orgao": f"Prefeitura / Câmara Municipal de {municipio} ({estado})",
-                            "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {municipio}/{estado})",
-                            "cidade": municipio,
-                            "estado": estado
+                            "cargo": cargo.title(),
+                            "orgao": f"Prefeitura / Câmara Municipal de {municipio.title()} ({estado.upper()})",
+                            "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {municipio.title()}/{estado.upper()})",
+                            "cidade": municipio.title(),
+                            "estado": estado.upper()
                         }
     except Exception:
         pass
@@ -1210,7 +1217,6 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                                     ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                                 ]))
                                 return t_badge
-                        # NADA CONSTA e textos neutros ficam sem fundo colorido
                         return Paragraph(text, style_val)
 
                     def load_proportional_img(path, target_h=65):
@@ -1317,7 +1323,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
                     ])
 
-                    # SEÇÃO 2 COM DETALHAMENTO DE CARGO, CIDADE, ESTADO E ÓRGÃO
+                    # SEÇÃO 2 COM DETALHAMENTO DINÂMICO DE CARGO, CIDADE, ESTADO E ÓRGÃO
                     make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
                         ("STATUS PEP DIRETO", STATUS_PEP_DIRETO, "STATUS_PEP"),
                         ("STATUS POR VÍNCULO", PEP_VINCULO, "PEP_VINCULO"),
