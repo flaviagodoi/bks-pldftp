@@ -542,7 +542,7 @@ def identificar_arquivo_tse():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """Busca estrita na CGU extraindo Função e Órgão."""
+    """Busca estrita na CGU extraindo Função e Órgão com nomes de colunas flexíveis."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -593,7 +593,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
     return None
 
 def buscar_na_planilha_tse(nome_input, cpf_input=""):
-    """Busca ultra-permissiva na planilha do TSE com varredura inteligente de colunas."""
+    """Busca ultra-permissiva na planilha do TSE com varredura tolerante de colunas e enquadramentos de codificação."""
     caminho_tse = identificar_arquivo_tse()
     if not caminho_tse:
         return None
@@ -601,63 +601,82 @@ def buscar_na_planilha_tse(nome_input, cpf_input=""):
     nome_norm = normalizar_texto(nome_input)
     cpf_num = re.sub(r'\D', '', str(cpf_input)) if cpf_input else ""
 
-    try:
-        with open(caminho_tse, mode='r', encoding='utf-8', errors='ignore') as f:
-            primeira_linha = f.readline()
-            sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
-            f.seek(0)
+    reparos = {
+        "ç": "c", "â": "a", "ã": "a", "á": "a", "é": "e", "ê": "e", 
+        "í": "i", "ó": "o", "ô": "o", "ú": "u", "µ": "a", "€": "c"
+    }
 
-            reader = csv.reader(f, delimiter=sep)
-            cabecalho = [normalizar_texto(col) for col in next(reader, [])]
+    encodings_teste = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
 
-            # Identificação das Posições das Colunas por Palavras-Chave
-            idx_nome = -1
-            idx_cargo = -1
-            idx_cidade = -1
-            idx_estado = -1
-            idx_cpf = -1
+    for enc in encodings_teste:
+        try:
+            with open(caminho_tse, mode='r', encoding=enc, errors='replace') as f:
+                primeira_linha = f.readline()
+                sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
+                f.seek(0)
 
-            for i, col in enumerate(cabecalho):
-                if any(k in col for k in ["candidato", "nome", "nm_cand"]):
-                    if idx_nome == -1: idx_nome = i
-                if any(k in col for k in ["cargo", "ds_cargo"]):
-                    idx_cargo = i
-                if any(k in col for k in ["municipio", "cidade", "nm_ue", "ue"]):
-                    idx_cidade = i
-                if any(k in col for k in ["uf", "estado", "sg_uf"]):
-                    idx_estado = i
-                if any(k in col for k in ["cpf", "nr_cpf"]):
-                    idx_cpf = i
+                reader = csv.reader(f, delimiter=sep)
+                cabecalho_raw = next(reader, [])
+                cabecalho = [normalizar_texto(col) for col in cabecalho_raw]
 
-            # Se não achou a coluna do nome pelo cabeçalho, assume a primeira coluna (índice 0)
-            if idx_nome == -1:
-                idx_nome = 0
+                idx_nome = -1
+                idx_cargo = -1
+                idx_cidade = -1
+                idx_estado = -1
+                idx_cpf = -1
 
-            # Varredura das Linhas do CSV
-            for linha in reader:
-                if not linha:
-                    continue
+                for i, col in enumerate(cabecalho):
+                    if any(k in col for k in ["candidato", "nome", "nm_cand"]):
+                        if idx_nome == -1: idx_nome = i
+                    if any(k in col for k in ["cargo", "ds_cargo"]):
+                        idx_cargo = i
+                    if any(k in col for k in ["municipio", "cidade", "nm_ue", "ue"]):
+                        idx_cidade = i
+                    if any(k in col for k in ["uf", "estado", "sg_uf"]):
+                        idx_estado = i
+                    if any(k in col for k in ["cpf", "nr_cpf"]):
+                        idx_cpf = i
 
-                val_nome = normalizar_texto(linha[idx_nome]) if len(linha) > idx_nome else ""
-                val_cpf = re.sub(r'\D', '', linha[idx_cpf]) if (idx_cpf != -1 and len(linha) > idx_cpf) else ""
+                if idx_nome == -1:
+                    idx_nome = 0
 
-                match_nome = (nome_norm and val_nome == nome_norm)
-                match_cpf = (cpf_num and val_cpf and cpf_num == val_cpf)
+                for linha in reader:
+                    if not linha:
+                        continue
 
-                if match_nome or match_cpf:
-                    cargo_txt = linha[idx_cargo].strip().title() if (idx_cargo != -1 and len(linha) > idx_cargo) else "Agente Político Eleito"
-                    cidade_txt = linha[idx_cidade].strip().title() if (idx_cidade != -1 and len(linha) > idx_cidade) else "Município Não Informado"
-                    estado_txt = linha[idx_estado].strip().upper() if (idx_estado != -1 and len(linha) > idx_estado) else "BR"
+                    val_nome_raw = linha[idx_nome].lower()
+                    for k_rep, v_rep in reparos.items():
+                        val_nome_raw = val_nome_raw.replace(k_rep, v_rep)
+                    
+                    val_nome = normalizar_texto(val_nome_raw)
+                    val_cpf = re.sub(r'\D', '', linha[idx_cpf]) if (idx_cpf != -1 and len(linha) > idx_cpf) else ""
 
-                    return {
-                        "cargo": cargo_txt,
-                        "orgao": f"Prefeitura / Câmara Municipal de {cidade_txt} ({estado_txt})",
-                        "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {cidade_txt}/{estado_txt})",
-                        "cidade": cidade_txt,
-                        "estado": estado_txt
-                    }
-    except Exception:
-        pass
+                    match_nome = False
+                    if nome_norm and val_nome:
+                        if nome_norm == val_nome:
+                            match_nome = True
+                        else:
+                            p_busca = set([w for w in nome_norm.split() if len(w) > 2])
+                            p_arq = set([w for w in val_nome.split() if len(w) > 2])
+                            if p_busca and p_busca.issubset(p_arq):
+                                match_nome = True
+
+                    match_cpf = (cpf_num and val_cpf and cpf_num == val_cpf)
+
+                    if match_nome or match_cpf:
+                        cargo_txt = linha[idx_cargo].strip().title() if (idx_cargo != -1 and len(linha) > idx_cargo) else "Agente Político Eleito"
+                        cidade_txt = linha[idx_cidade].strip().title() if (idx_cidade != -1 and len(linha) > idx_cidade) else "Município Não Informado"
+                        estado_txt = linha[idx_estado].strip().upper() if (idx_estado != -1 and len(linha) > idx_estado) else "BR"
+
+                        return {
+                            "cargo": cargo_txt,
+                            "orgao": f"Prefeitura / Câmara Municipal de {cidade_txt} ({estado_txt})",
+                            "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {cidade_txt}/{estado_txt})",
+                            "cidade": cidade_txt,
+                            "estado": estado_txt
+                        }
+        except Exception:
+            continue
 
     return None
 
@@ -1619,7 +1638,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 # =============================================================================
 elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.title("⚙️ Gerenciador de Usuários e Segurança de Acesso")
-    st.caption("Painel de controle de autorizaciones, perfis de operador e gestão centralizada de senhas.")
+    st.caption("Painel de controle de autorizações, perfis de operador e gestão centralizada de senhas.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     dict_usuarios = carregar_usuarios()
