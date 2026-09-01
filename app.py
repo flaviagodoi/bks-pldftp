@@ -592,15 +592,14 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
     return None
 
-def buscar_na_planilha_tse(nome_input):
-    """Busca no TSE capturando Cargo, Cidade, Estado e Órgão."""
+def buscar_na_planilha_tse(nome_input, cpf_input=""):
+    """Busca ultra-flexível no TSE por Nome ou CPF, capturando Cargo, Cidade, Estado e Órgão."""
     caminho_tse = identificar_arquivo_tse()
     if not caminho_tse:
         return None
 
     nome_norm = normalizar_texto(nome_input)
-    if not nome_norm or len(nome_norm.split()) < 2:
-        return None
+    cpf_num = re.sub(r'\D', '', str(cpf_input)) if cpf_input else ""
 
     status_eleito_validos = ["ELEITO", "ELEITO POR QP", "ELEITO POR MEDIA", "2O TURNO"]
 
@@ -617,7 +616,12 @@ def buscar_na_planilha_tse(nome_input):
                 nome_cand = (row_clean.get("nm_candidato") or row_clean.get("nome_candidato") or 
                              row_clean.get("nm_urna_candidato") or row_clean.get("nome") or "")
                 
-                if normalizar_texto(nome_cand) == nome_norm:
+                cpf_cand = re.sub(r'\D', '', row_clean.get("nr_cpf_candidato") or row_clean.get("cpf") or "")
+
+                match_nome = (nome_norm and normalizar_texto(nome_cand) == nome_norm)
+                match_cpf = (cpf_num and cpf_cand and cpf_num == cpf_cand)
+
+                if match_nome or match_cpf:
                     sit_tot = (row_clean.get("ds_sit_tot_turno") or row_clean.get("ds_situacao_candidatura") or 
                                row_clean.get("situacao") or "").upper()
                     
@@ -716,7 +720,7 @@ def buscar_web_tripla_fonte(nome, cpf=""):
     return None
 
 def verificar_pep_completo(nome_input, cpf_input):
-    """Mecanismo de Tripla Camada dando PRIORIDADE AO TSE para resgatar Cidade e Estado."""
+    """Mecanismo de Tripla Camada consultando a CGU e o TSE."""
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
@@ -726,8 +730,13 @@ def verificar_pep_completo(nome_input, cpf_input):
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
-    # 2. PRIORIDADE 1: Base Oficial do TSE (Para trazer Cargo + Cidade + Estado Específicos)
-    match_tse = buscar_na_planilha_tse(nome_limpo)
+    # 2. Varredura na Base Oficial da CGU
+    match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
+
+    # 3. Varredura na Base Oficial do TSE (Busca por Nome e CPF)
+    match_tse = buscar_na_planilha_tse(nome_limpo, cpf_input)
+
+    # Fusão Inteligente: Se achou no TSE, aproveita os dados ricos de Cidade/Estado do TSE
     if match_tse:
         return {
             "tipo": "DIRETO",
@@ -739,8 +748,6 @@ def verificar_pep_completo(nome_input, cpf_input):
             "estado": match_tse["estado"]
         }
 
-    # 3. PRIORIDADE 2: Base Oficial da CGU
-    match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_cgu:
         return {
             "tipo": "DIRETO",
@@ -752,7 +759,7 @@ def verificar_pep_completo(nome_input, cpf_input):
             "estado": match_cgu.get("estado", "BR")
         }
 
-    # 4. PRIORIDADE 3: Varredura Web de Segurança
+    # 4. Varredura Web de Segurança
     match_web = buscar_web_tripla_fonte(nome_limpo, cpf_input)
     if match_web:
         return match_web
@@ -814,7 +821,7 @@ if not st.session_state.autenticado:
     with col_l2:
         st.markdown("<br>", unsafe_allow_html=True)
         
-        bks_b64 = obtaining_base64_imagem("logo_bks.png") if 'obtaining_base64_imagem' in globals() else obter_base64_imagem("logo_bks.png")
+        bks_b64 = obter_base64_imagem("logo_bks.png")
         bksre_b64 = obter_base64_imagem("logo_bksre.png")
         
         img_bks_html = f'<img src="data:image/png;base64,{bks_b64}" style="height: 75px; max-width: 220px; object-fit: contain;">' if bks_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS CORRETORA</span>'
@@ -1006,7 +1013,7 @@ with st.sidebar:
         st.caption("""
             **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
             
-            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitucional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
+            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitutional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
             2. **Armazenamento Seguro:** O histórico de laudos e vencimentos é mantido em banco de dados corporativo criptografado (Supabase via SSL/TLS), sem armazenamento temporário em máquinas operacionais.
             3. **Minimização de Riscos:** As exibições públicas utilizam mascaramento parcial de CPF (`123.***.***-89`), reduzindo a exposição em conformidade com as diretrizes da ANPD.
             4. **Confidencialidade:** Os dados pesquisados destinam-se exclusivamente ao respaldo regulatório corporativo, sendo vedada a comercialização ou compartilhamento não autorizado.
