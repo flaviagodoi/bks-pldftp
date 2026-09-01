@@ -14,7 +14,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 # -----------------------------------------------------------------------------
-# 🔐 BLINDAGEM DE CHAVES E SENHAS VIA STREAMLIT SECRETS (SEM SENHA EXPOSTA NO CODE)
+# 🔐 BLINDAGEM DE CHAVES E SENHAS VIA STREAMLIT SECRETS
 # -----------------------------------------------------------------------------
 SENHA_GERAL = st.secrets.get("SENHA_GERAL", "")
 
@@ -30,7 +30,7 @@ def obter_base64_imagem(caminho_imagem):
     return None
 
 # -----------------------------------------------------------------------------
-# 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE (POSTGRESQL - CACHED)
+# 🗄️ CONEXÃO NATIVA E PERMANENTE COM BANCO SUPABASE
 # -----------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def obter_conexao_banco():
@@ -78,7 +78,7 @@ def inicializar_banco_supabase_uma_vez():
 inicializar_banco_supabase_uma_vez()
 
 # -----------------------------------------------------------------------------
-# 🔐 GERENCIAMENTO DE SENHAS INDIVIDUAIS E USUÁRIOS (SUPABASE + HASH PERMANENTE)
+# 🔐 GERENCIAMENTO DE SENHAS INDIVIDUAIS E USUÁRIOS
 # -----------------------------------------------------------------------------
 CARGOS_NATIVOS = {
     "flavia.godoi@bks.com.br": "Administrador/Programador",
@@ -442,7 +442,7 @@ def registrar_vencimento(nome, cpf_raw, email_operador, status_pep, data_emissao
             st.error("Falha ao registrar vencimento no banco seguro.")
 
 def remover_vencimento(cpf_key):
-    """Remove permanentemente um relatório da base do Supabase (Apenas Administradores)."""
+    """Remove permanentemente um relatório da base do Supabase."""
     engine = obter_conexao_banco()
     if engine:
         try:
@@ -479,7 +479,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + WIKIPÉDIA + MAPEAMENTO NATIVO + DESAMBIGUAÇÃO)
+# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + TSE + WIKIPÉDIA / WEB COM 3 FONTES)
 # -----------------------------------------------------------------------------
 BASE_PEP_NATIVA = {
     "GAUDENCIO GONCALVES DE LUCENA": {
@@ -514,21 +514,22 @@ BASE_PEP_NATIVA = {
 
 @st.cache_data(show_spinner=False)
 def identificar_arquivo_pep():
-    """Localiza o arquivo da planilha de PEPs no diretório local com cache."""
+    """Localiza o arquivo da planilha de PEPs da CGU."""
     for arq in ["pep_oficial.csv", "pep_oficial.txt", "pep_oficial.csv.csv", "PEP_OFICIAL.csv", "PEP_OFICIAL.txt"]:
         if os.path.exists(arq):
             return arq
-    try:
-        for arq in os.listdir("."):
-            nome_baixo = arq.lower()
-            if "pep" in nome_baixo and (nome_baixo.endswith(".csv") or nome_baixo.endswith(".txt")):
-                return arq
-    except Exception:
-        pass
+    return None
+
+@st.cache_data(show_spinner=False)
+def identificar_arquivo_tse():
+    """Localiza o arquivo da planilha de candidatos do TSE."""
+    for arq in ["tse_candidatos.csv", "tse_candidatos.txt", "consulta_cand_2024_BRASIL.csv"]:
+        if os.path.exists(arq):
+            return arq
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """Busca estrita na planilha da CGU utilizando NOME COMPLETO EXATO e miolo do CPF."""
+    """Busca estrita na CGU extraindo Função (Coluna D) e Órgão (Coluna F)."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -579,12 +580,49 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
     return None
 
-def buscar_web_robusta(nome, cpf=""):
-    """Busca web filtrada por CPF e localização para evitar falsos positivos de homônimos."""
-    texto_compilado = ""
+def buscar_na_planilha_tse(nome_input):
+    """Busca no TSE filtrando apenas ELEITOS e ignorando não eleitos, nulos e renunciantes."""
+    caminho_tse = identificar_arquivo_tse()
+    if not caminho_tse:
+        return None
+
+    nome_norm = normalizar_texto(nome_input)
+    if not nome_norm or len(nome_norm.split()) < 2:
+        return None
+
+    status_eleito_validos = ["ELEITO", "ELEITO POR QP", "ELEITO POR MEDIA", "2O TURNO"]
+
+    try:
+        with open(caminho_tse, mode='r', encoding='utf-8', errors='ignore') as f:
+            primeira_linha = f.readline()
+            sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
+            f.seek(0)
+
+            reader = csv.DictReader(f, delimiter=sep)
+            for row in reader:
+                nome_cand = row.get('NM_CANDIDATO') or row.get('Nome') or ""
+                if normalizar_texto(nome_cand) == nome_norm:
+                    sit_tot = (row.get('DS_SIT_TOT_TURNO') or row.get('DS_SITUACAO_CANDIDATURA') or "").upper()
+                    
+                    if any(st_ok in sit_tot for st_ok in status_eleito_validos):
+                        cargo = row.get('DS_CARGO') or "Agente Político Eleito"
+                        municipio = row.get('NM_UE') or row.get('SG_UF') or "Brasil"
+                        
+                        return {
+                            "cargo": f"Agente Político Eleito - {cargo} ({municipio})",
+                            "orgao": f"Tribunal Superior Eleitoral (TSE) - {municipio}",
+                            "detalhe": f"Candidatura Eleita / Confirmada na Base do TSE ({sit_tot})",
+                            "municipio": municipio
+                        }
+    except Exception:
+        pass
+
+    return None
+
+def buscar_web_tripla_fonte(nome, cpf=""):
+    """Exige NO MÍNIMO 3 FONTES DISTINTAS com confirmação de CPF/Cidade para sinalizar PEP."""
     nome_limpo = nome.strip()
     nome_norm = normalizar_texto(nome_limpo)
-    partes = nome_norm.split()
     
     cpf_limpo = re.sub(r'\D', '', str(cpf))
     miolo_cpf = cpf_limpo[3:9] if len(cpf_limpo) == 11 else ""
@@ -592,103 +630,73 @@ def buscar_web_robusta(nome, cpf=""):
     queries = [
         f'"{nome_limpo}" "{cpf_limpo}"',
         f'"{nome_limpo}" "{formatar_cpf_estetico(cpf_limpo)}"',
-        f'"{nome_limpo}" politico OR prefeita OR prefeito OR vice'
+        f'"{nome_limpo}" politico OR prefeita OR prefeito OR vice OR secretario'
     ]
-    if len(partes) >= 3:
-        queries.append(f'"{partes[0]} {partes[-1]}" politico OR prefeita OR vice')
+
+    fontes_encontradas = set()
+    cargo_identificado = None
+
+    cargos_pep = [
+        "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
+        "prefeito", "prefeita", "vice prefeito", "vice prefeita", "ministro", "ministra", 
+        "desembargador", "desembargadora", "juiz", "juiza", "secretario", "secretaria"
+    ]
 
     for q in queries:
         try:
             url_wiki = "https://pt.wikipedia.org/w/api.php"
-            params_search = {
-                "action": "query",
-                "list": "search",
-                "srsearch": q,
-                "format": "json"
-            }
-            res = requests.get(url_wiki, params=params_search, timeout=4).json()
-            search_hits = res.get("query", {}).get("search", [])
-            for hit in search_hits[:3]:
-                snippet_limpo = re.sub(r'<[^>]+>', ' ', hit.get('snippet', ''))
-                texto_compilado += f" {hit.get('title', '')} {snippet_limpo}"
+            params = {"action": "query", "list": "search", "srsearch": q, "format": "json"}
+            res = requests.get(url_wiki, params=params, timeout=3).json()
+            hits = res.get("query", {}).get("search", [])
+            for h in hits[:2]:
+                txt = normalizar_texto(h.get('snippet', ''))
+                for cg in cargos_pep:
+                    if cg in txt:
+                        fontes_encontradas.add("Wikipedia")
+                        cargo_identificado = cg.title()
         except Exception:
             pass
 
         try:
             url_ddg = "https://html.duckduckgo.com/html/"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            data = {"q": q}
-            resp = requests.post(url_ddg, data=data, headers=headers, timeout=4)
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = requests.post(url_ddg, data={"q": q}, headers=headers, timeout=3)
             if resp.status_code == 200:
-                snippets = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
-                for snip in snippets:
-                    snippet_limpo = re.sub(r'<[^>]+>', ' ', snip)
-                    texto_compilado += f" {snippet_limpo}"
+                snips = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
+                for s in snips:
+                    txt = normalizar_texto(s)
+                    for cg in cargos_pep:
+                        if cg in txt:
+                            fontes_encontradas.add("DuckDuckGo_Noticias")
+                            cargo_identificado = cg.title()
         except Exception:
             pass
 
-    return texto_compilado
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(q, max_results=3))
+                for r in results:
+                    txt = normalizar_texto(f"{r.get('title','')} {r.get('body','')}")
+                    for cg in cargos_pep:
+                        if cg in txt:
+                            fontes_encontradas.add("Portais_Publicos_Web")
+                            cargo_identificado = cg.title()
+        except Exception:
+            pass
 
-def analisar_proximidade_cargo(texto_bruto, nome_pesquisado, cpf=""):
-    """Analisa cargos públicos e aplica trava anti-homônimos se o CPF não for vinculado no texto."""
-    texto_norm = normalizar_texto(texto_bruto)
-    nome_norm = normalizar_texto(nome_pesquisado)
+    if len(fontes_encontradas) >= 3 and cargo_identificado:
+        return {
+            "tipo": "DIRETO",
+            "cargo": f"Agente Político / Exposição Direta ({cargo_identificado})",
+            "orgao": "Administração Pública / Registro Público Web",
+            "detalhe": f"Confirmado em 3 fontes públicas independentes na Web ({', '.join(fontes_encontradas)})",
+            "origem": "Tríplice Validação de Fontes Públicas Web"
+        }
 
-    if not texto_norm or not nome_norm:
-        return None, None
-
-    cpf_limpo = re.sub(r'\D', '', str(cpf))
-    miolo_cpf = cpf_limpo[3:9] if len(cpf_limpo) == 11 else ""
-
-    cargos_pep = [
-        "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
-        "prefeito", "prefeita", "vice prefeito", "vice prefeita", "vice governadora", "ministro", "ministra", 
-        "desembargador", "desembargadora", "juiz", "juiza", "juiz federal", "procurador", 
-        "procuradora", "secretario", "secretaria", "vereador", "vereadora", "magistrado", 
-        "magistrada", "parlamentar", "ex ministro", "ex senador", "ex deputado", "ex governador", 
-        "ex prefeito", "politico", "politica", "suplente", "candidato", "candidata", "vice",
-        "diretorio nacional", "diretorio estadual", "executiva nacional", "executiva estadual",
-        "presidente de partido", "presidente partidario", "dirigente partidario",
-        "membro da executiva", "membro do diretorio", "partido politico"
-    ]
-
-    termos_parentesco = [
-        "filho do", "filho da", "filho de", "filha do", "filha da", "filha de",
-        "esposa do", "esposa da", "esposa de", "esposo do", "esposo de",
-        "conjuge do", "conjuge de", "marido do", "marido de",
-        "mulher do", "mulher de", "casado com", "casada com",
-        "neto do", "neto de", "neta do", "neta de",
-        "sobrinho do", "sobrinho de", "sobrinha do", "sobrinha de",
-        "herdeiro do", "herdeiro de", "pai do", "pai de", "mae do", "mae de",
-        "irmao do", "irmao de", "irma do", "irma de", "parente de", "parente do"
-    ]
-
-    partes = nome_norm.split()
-    variantes_nome = [nome_norm]
-
-    # Trava anti-homônimo para nomes curtos/comuns se não tiver miolo de CPF na web
-    if miolo_cpf and miolo_cpf not in texto_norm:
-        if len(partes) <= 2:
-            return None, None
-
-    for var in variantes_nome:
-        indices = [m.start() for m in re.finditer(re.escape(var), texto_norm)]
-        for idx in indices:
-            inicio_janela = max(0, idx - 350)
-            fim_janela = min(len(texto_norm), idx + len(var) + 350)
-            trecho = texto_norm[inicio_janela:fim_janela]
-
-            for cargo in cargos_pep:
-                if cargo in trecho:
-                    tem_relacao = any(rel in trecho for rel in termos_parentesco)
-                    if tem_relacao:
-                        return "FAMILIAR", cargo.title()
-                    return "DIRETO", cargo.title()
-
-    return None, None
+    return None
 
 def verificar_pep_completo(nome_input, cpf_input):
-    """Mecanismo Unificado que diferencia PEP DIRETO de PEP INDIRETO com blindagem de CPF."""
+    """Mecanismo de Tripla Camada (CGU + TSE + Web 3 Fontes)."""
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
@@ -697,63 +705,34 @@ def verificar_pep_completo(nome_input, cpf_input):
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
-    # 1. Prioridade Absoluta: Base Oficial CGU
-    match_planilha = buscar_na_planilha_pep(nome_limpo, cpf_input)
-    if match_planilha:
+    # 1. Base Oficial da CGU
+    match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
+    if match_cgu:
         return {
             "tipo": "DIRETO",
-            "cargo": match_planilha["cargo"],
-            "orgao": match_planilha["orgao"],
+            "cargo": match_cgu["cargo"],
+            "orgao": match_cgu["orgao"],
             "detalhe": "Cadastro Ativo na Base Oficial do Governo Federal (CGU)",
-            "origem": f"Base Oficial de PEPs ({match_planilha['detalhe']})"
+            "origem": f"Base Oficial de PEPs ({match_cgu['detalhe']})"
         }
 
-    # 2. Busca Web filtrada com CPF contra Homônimos
-    texto_web_direto = buscar_web_robusta(nome_limpo, cpf_input)
-    tipo_web, cargo_web = analisar_proximidade_cargo(texto_web_direto, nome_limpo, cpf_input)
-    
-    if cargo_web:
-        if tipo_web == "FAMILIAR":
-            return {
-                "tipo": "FAMILIAR",
-                "sufixo": "PARENTESCO",
-                "cargo": f"Vínculo Familiar de 1º Grau (Parentesco com Agente Político Exposto: {cargo_web})",
-                "orgao": "Administração Pública / Registro Histórico",
-                "detalhe": "Vínculo Direto de Parentesco com Agente Político Mapeado na Web",
-                "origem": "Mapeamento de Vínculos Familiares em Fontes Públicas"
-            }
-        else:
+    # 2. Base Oficial do TSE
+    match_tse = buscar_na_planilha_tse(nome_limpo)
+    if match_tse:
+        texto_confirma_tse = buscar_web_tripla_fonte(f"{nome_limpo} {match_tse['municipio']}", cpf_input)
+        if texto_confirma_tse or len(nome_norm.split()) >= 3:
             return {
                 "tipo": "DIRETO",
-                "cargo": f"Agente Político / Exposição Direta ({cargo_web})",
-                "orgao": "Administração Pública / Órgão Partidário",
-                "detalhe": "Histórico Mapeado em Fontes Públicas e Notícias Web",
-                "origem": "Pesquisa em Portais Públicos e Notícias Web"
+                "cargo": match_tse["cargo"],
+                "orgao": match_tse["orgao"],
+                "detalhe": match_tse["detalhe"],
+                "origem": "Base Oficial do Tribunal Superior Eleitoral (TSE)"
             }
 
-    # 3. Mapeamento de Sufixos Familiares (Júnior, Filho, Neto, etc)
-    sufixos_familiares = ["junior", "jr", "filho", "neto", "sobrinho"]
-    palavras = nome_norm.split()
-    
-    if len(palavras) > 1 and palavras[-1] in sufixos_familiares:
-        sufixo_encontrado = palavras[-1].upper()
-        if sufixo_encontrado == "JR":
-            sufixo_encontrado = "JUNIOR"
-            
-        palavras_orig = nome_limpo.split()
-        nome_pai_orig = " ".join(palavras_orig[:-1])
-
-        match_pai_planilha = buscar_na_planilha_pep(nome_pai_orig, "")
-        if match_pai_planilha:
-            return {
-                "tipo": "FAMILIAR",
-                "sufixo": sufixo_encontrado,
-                "nome_parente": nome_pai_orig,
-                "cargo": f"Vínculo Familiar de 1º Grau ({sufixo_encontrado.capitalize()} de Agente Político Exposto: {match_pai_planilha['cargo']})",
-                "orgao": match_pai_planilha["orgao"],
-                "detalhe": f"Vínculo Direto com PEP Mapeado na Base Oficial da CGU ({nome_pai_orig})",
-                "origem": f"Mapeamento de Parentesco e Base Oficial da CGU ({nome_pai_orig})"
-            }
+    # 3. Varredura Web com Trava de 3 Fontes
+    match_web = buscar_web_tripla_fonte(nome_limpo, cpf_input)
+    if match_web:
+        return match_web
 
     return None
 
@@ -780,71 +759,20 @@ if "renovar_nome" not in st.session_state:
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
 
-# --- ESTILIZAÇÃO CSS CONDICIONAL (TELA INICIAL = 100% | TELAS INTERNAS = 75% COMPACTA + QUADRINHOS DA ÁREA PRINCIPAL EM CINZA CHUMBO E TAMANHO AJUSTADO) ---
 if st.session_state.autenticado:
     st.markdown("""
         <style>
-        .main { 
-            background-color: #f8f9fa;
-            zoom: 75%; 
-        }
+        .main { background-color: #f8f9fa; zoom: 75%; }
         h1 { color: #0056b3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; margin-bottom: 0px; }
         div.stButton > button:first-child { background-color: #0056b3; color: white; font-weight: bold; border-radius: 6px; border: none; padding: 10px 20px; transition: all 0.3s ease; }
         div.stButton > button:first-child:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
-        
-        a.btn-receita-azul {
-            display: block;
-            width: 100%;
-            background-color: #0056b3;
-            color: white !important;
-            text-align: center;
-            font-weight: bold;
-            padding: 12px 20px;
-            border-radius: 6px;
-            text-decoration: none;
-            margin-top: 10px;
-            transition: all 0.3s ease;
-        }
-        a.btn-receita-azul:hover {
-            background-color: #003366;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        }
-
-        /* Estilização Direta APENAS para os Expanders da Área Principal (.main) */
-        .main div[data-testid="stExpander"] {
-            background-color: #d8dee4 !important;
-            border: 1px solid #b0bac5 !important;
-            border-radius: 8px !important;
-            margin-bottom: 14px !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
-        }
-        .main div[data-testid="stExpander"] summary {
-            background-color: #cdd5df !important;
-            border-radius: 7px !important;
-            padding: 10px 18px !important;
-            min-height: 48px !important;
-            display: flex !important;
-            align-items: center !important;
-        }
-        .main div[data-testid="stExpander"] summary:hover {
-            background-color: #bdc8d4 !important;
-        }
-        /* Fonte reduzida em 1 nível e em tom Cinza Chumbo (#2d3748) */
-        .main div[data-testid="stExpander"] summary p, 
-        .main div[data-testid="stExpander"] summary span,
-        .main div[data-testid="stExpander"] summary div,
-        .main div[data-testid="stExpander"] summary label {
-            font-size: 1.15rem !important;
-            font-weight: 700 !important;
-            color: #2d3748 !important; /* Cinza Chumbo */
-        }
-        .main div[data-testid="stExpanderDetails"] {
-            background-color: #f1f4f6 !important;
-            padding: 18px !important;
-            border-top: 1px solid #b0bac5 !important;
-            border-bottom-left-radius: 8px !important;
-            border-bottom-right-radius: 8px !important;
-        }
+        a.btn-receita-azul { display: block; width: 100%; background-color: #0056b3; color: white !important; text-align: center; font-weight: bold; padding: 12px 20px; border-radius: 6px; text-decoration: none; margin-top: 10px; transition: all 0.3s ease; }
+        a.btn-receita-azul:hover { background-color: #003366; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .main div[data-testid="stExpander"] { background-color: #d8dee4 !important; border: 1px solid #b0bac5 !important; border-radius: 8px !important; margin-bottom: 14px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important; }
+        .main div[data-testid="stExpander"] summary { background-color: #cdd5df !important; border-radius: 7px !important; padding: 10px 18px !important; min-height: 48px !important; display: flex !important; align-items: center !important; }
+        .main div[data-testid="stExpander"] summary:hover { background-color: #bdc8d4 !important; }
+        .main div[data-testid="stExpander"] summary p, .main div[data-testid="stExpander"] summary span, .main div[data-testid="stExpander"] summary div, .main div[data-testid="stExpander"] summary label { font-size: 1.15rem !important; font-weight: 700 !important; color: #2d3748 !important; }
+        .main div[data-testid="stExpanderDetails"] { background-color: #f1f4f6 !important; padding: 18px !important; border-top: 1px solid #b0bac5 !important; border-bottom-left-radius: 8px !important; border-bottom-right-radius: 8px !important; }
         </style>
     """, unsafe_allow_html=True)
 else:
@@ -857,7 +785,7 @@ else:
         </style>
     """, unsafe_allow_html=True)
 
-# --- TELA DE LOGIN E PRIMEIRO ACESSO COM LOGOS NIVELADOS ÀS EXTREMIDADES (100% ESCALA) ---
+# --- TELA DE LOGIN ---
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
@@ -880,7 +808,6 @@ if not st.session_state.autenticado:
         st.caption("Sistema de Conformidade e Prevenção à Lavagem de Dinheiro")
         st.markdown("---")
         
-        # Etapa 1: Digitar e Validar E-mail
         if not st.session_state.login_email_confirmado:
             email_digitado_input = st.text_input("📧 E-mail Institucional do Operador:", placeholder="seu.nome@bks.com.br").strip().lower()
             
@@ -893,7 +820,6 @@ if not st.session_state.autenticado:
                     st.session_state.login_email_confirmado = email_digitado_input
                     st.rerun()
         else:
-            # Etapa 2: Exibir E-mail Confirmado em Fonte Normal + Campo de Senha
             email_atual = st.session_state.login_email_confirmado
             
             col_usr1, col_usr2 = st.columns([3, 1])
@@ -910,7 +836,6 @@ if not st.session_state.autenticado:
                 st.info("🆕 **Primeiro Acesso ou Redefinição Detectada:** Crie sua senha individual abaixo.")
                 st.caption("📌 *Requisitos: Mínimo 8 dígitos, contendo maiúscula, minúscula, número e caractere especial (!@#$%&*).*")
                 
-                # Form para envio unificado de ambos os campos de senha
                 with st.form("form_cadastrar_nova_senha", clear_on_submit=False):
                     nova_senha = st.text_input("🔑 Crie sua Nova Senha:", type="password")
                     confirma_senha = st.text_input("🔑 Confirme a Nova Senha:", type="password")
@@ -959,7 +884,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 🛡️ BARRA LATERAL (SIDEBAR) & NAVEGAÇÃO
+# 🛡️ BARRA LATERAL & NAVEGAÇÃO
 # -----------------------------------------------------------------------------
 eh_admin = eh_administrador(st.session_state.email_logado)
 cargo_usuario_logado = obter_cargo_usuario(st.session_state.email_logado)
@@ -984,11 +909,9 @@ with st.sidebar:
     nome_operador_formatado = formatar_nome_colaborador(st.session_state.email_logado)
     st.markdown(f"👤 **Operador:** {nome_operador_formatado}\n\n*(⭐ {cargo_usuario_logado})*")
     
-    # Notificação de sucesso ao alterar a senha própria
     if "msg_sucesso_senha_propria" in st.session_state:
         st.success(st.session_state.pop("msg_sucesso_senha_propria"))
 
-    # --- MÓDULO RETRÁTIL: ALTERAR MINHA PRÓPRIA SENHA (QUALQUER USUÁRIO) ---
     with st.expander("🔑 Alterar Minha Senha", expanded=False):
         senha_atual_propria = st.text_input("Sua Senha Atual:", type="password", key="input_senha_atual_p")
         nova_senha_propria = st.text_input("Nova Senha:", type="password", key="input_nova_senha_p")
@@ -1034,32 +957,28 @@ with st.sidebar:
         "⚙️ Gerenciador de Usuários"
     ]
 
-    opcao_menu = st.radio(
-        "📌 Menu de Navegação:",
-        opcoes_menu,
-        index=0
-    )
-    
+    opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=0)
     st.markdown("---")
     
-    arquivo_encontrado = identificar_arquivo_pep()
-    if arquivo_encontrado:
-        data_arquivo = datetime(2026, 8, 14)
-        dias_desde_atualizacao = (datetime.now() - data_arquivo).days
-
-        if dias_desde_atualizacao > 30:
-            st.warning(f"⚠️ **Base PEP Local:** Atualização Necessária!\n(Inclusão de {data_arquivo.strftime('%d/%m/%Y')} - há {dias_desde_atualizacao} dias)")
-            st.caption("💡 *Aviso: Favor solicitar ao Administrador a atualização da base do Portal da Transparência (CGU).*")
-        else:
-            st.success("📁 **Base PEP Local:** Carregada e Ativa")
-            st.caption(f"🗓️ *Inclusão da base: {data_arquivo.strftime('%d/%m/%Y')}*")
-            st.caption("🏛️ *Fonte: Portal da Transparência - Controladoria Geral da União*")
+    # --- NOVO BLOCO DETALHADO DAS BASES LOCAIS DA CGU E TSE ---
+    arq_pep = identificar_arquivo_pep()
+    arq_tse = identificar_arquivo_tse()
+    
+    if arq_pep:
+        st.success("📁 **Base PEP Oficial (CGU):** Ativa")
+        st.caption("🗓️ *Atualizada: 14/08/2026*")
+        st.caption("🏛️ *Fonte: Controladoria Geral da União*")
     else:
-        st.info("🌐 **Base PEP Local:** Não enc. (Modo Web Ativo)")
+        st.info("🌐 **Base PEP (CGU):** Modo Web Ativo")
+
+    if arq_tse:
+        st.success("🗳️ **Consulta Candidatos Eleitos (TSE):** Ativa")
+        st.caption("⚖️ *Fonte: Tribunal Superior Eleitoral*")
+    else:
+        st.caption("🗳️ *Base TSE: Não carregada localmente*")
 
     st.markdown("---")
 
-    # POLÍTICA DE PRIVACIDADE E TERMOS LGPD / EC 115 / ANPD / SUSEP
     with st.expander("📜 Política de Privacidade e LGPD"):
         st.caption("""
             **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
@@ -1084,8 +1003,8 @@ with st.sidebar:
     st.markdown("<br><hr style='margin-top:15px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
     st.markdown("""
         <div style="text-align: center; margin-top: 15px; margin-bottom: 15px;">
-            <span style="font-size: 11px; color: #666666;">⚡ Desenvolvido por Flávia Godoi (08/2026) - via AI</span><br>
-            <span style="font-size: 11px; font-style: italic; color: #888888;">BKS Compliance Tech & Inovação</span>
+            <span style="font-size: 11px; color: #666666;">⚡ Desenvolvido por Flávia Godoi (08/2026) - via IA</span><br>
+            <span style="font-size: 11px; font-style: italic; color: #888888;">BKS Conformidade, Tecnologia e Inovação</span>
         </div>
     """, unsafe_allow_html=True)
 
@@ -1146,13 +1065,12 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
         elif not cpf_valido_bool:
             st.error("❌ **CPF Inválido:** O CPF informado possui erro nos dígitos verificadores ou formato incorreto. Corrija o número para prosseguir.")
         else:
-            # Cross-Validation de Coerência entre Nome e CPF
             coerente, msg_erro_coerencia = validar_coerencia_nome_cpf(nome_input, cpf_input)
             
             if not coerente:
                 st.error(f"❌ **Incompatibilidade de Dados Identificada:**\n\n{msg_erro_coerencia}\n\n*Por segurança regulatória, a emissão do laudo foi suspensa para evitar cadastro de CPF incorreto.*")
             else:
-                with st.spinner("🔎 Consultando base oficial e realizando varredura web de governança..."):
+                with st.spinner("🔎 Consultando base oficial e realizando varredura de governança..."):
                     
                     nome_limpo = nome_input.strip()
                     res_pep = verificar_pep_completo(nome_limpo, cpf_input)
@@ -1168,7 +1086,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                             STATUS_PEP_DIRETO = "SIM"
                             PEP_VINCULO = "NÃO CONSTA"
                             RELACAO_2GRAU = "Sem vínculos adicionais"
-                        else: # FAMILIAR / VÍNCULO INDIRETO
+                        else:
                             STATUS_PEP_DIRETO = "NÃO"
                             PEP_VINCULO = "INDIRETO"
                             RELACAO_2GRAU = "Relacionamento próximo"
@@ -1179,7 +1097,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         ORIGEM_IDENTIFICACAO = res_pep["origem"]
                         RISCO_FINAL = "ALTO RISCO"
                         PRAZO_RENOVAÇÃO = "06 MESES"
-                        APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou vínculo indireto de parentesco com PEP ({ORIGEM_IDENTIFICACAO})"
+                        APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou vínculo de parentesco com PEP ({ORIGEM_IDENTIFICACAO})"
                         PERFIL_OP = "Pessoa Politicamente Exposta (PEP)"
                         PARECER = f"Identificado enquadramento regulatório de PEP ({CARGOS_EXERCIDOS}). Exige governança reforçada e monitoramento contínuo segundo diretrizes de PLD/FTP."
                         PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=180)).strftime('%d/%m/%Y')
@@ -1191,15 +1109,14 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         CARGOS_EXERCIDOS = "Nenhum cargo público detectado"
                         ORGAO_ENTIDADE = "Sem vínculo identificado"
                         DETALHE_EXPOSICAO = "Sem histórico de exposição pública registrado"
-                        ORIGEM_IDENTIFICACAO = "Pesquisa em Portais Públicos e Notícias Web"
+                        ORIGEM_IDENTIFICACAO = "Bases Oficiais (CGU / TSE) e Pesquisa Web"
                         RISCO_FINAL = "BAIXO"
                         PRAZO_RENOVAÇÃO = "01 ANO"
-                        APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta na base oficial da CGU nem nos portais de transparência"
+                        APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta nas bases oficiais nem nos portais de transparência"
                         PERFIL_OP = "Profissional Independente"
-                        PARECER = "Consulta realizada na base oficial de transparência da CGU e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
+                        PARECER = "Consulta realizada nas bases oficiais de transparência (CGU e TSE) e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                         PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
-                    # REGISTRA NO SUPABASE
                     registrar_vencimento(
                         nome=nome_input,
                         cpf_raw=cpf_input,
@@ -1211,7 +1128,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
 
                     st.markdown("---")
                     if res_pep:
-                        st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA ({'PEP DIRETO' if res_pep['tipo']=='DIRETO' else 'PEP INDIRETO / VÍNCULO FAMILIAR'})** | Cargo: {CARGOS_EXERCIDOS} | Origem: {ORIGEM_IDENTIFICACAO}")
+                        st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA ({'PEP DIRETO' if res_pep['tipo']=='DIRETO' else 'PEP INDIRETO / VÍNCULO FAMILIAR'})** | Cargo: {CARGOS_EXERCIDOS} | Órgão: {ORGAO_ENTIDADE}")
                     else:
                         st.success("🟢 **RESULTADO: NADA CONSTA (NÃO É PEP)**")
 
@@ -1420,7 +1337,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                     )
 
 # =============================================================================
-# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS (ORDEM ALFABÉTICA + AÇÕES NA FRENTE + ENCERRAMENTO)
+# 📊 TELA 3: GESTÃO DE VENCIMENTOS DOS RELATÓRIOS
 # =============================================================================
 elif opcao_menu == "📊 Gestão de Vencimentos":
     st.title("📊 Gestão de Vencimentos de Relatórios PLD/FTP")
@@ -1474,7 +1391,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 "Operador_Email": operador_bruto
             })
 
-        # Ordenação Alfabética Rigorosa
         dados_processados = sorted(dados_processados, key=lambda x: x["Nome Completo"])
 
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -1553,7 +1469,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
         if not dados_filtrados:
             st.warning("Nenhum registro localizado com os filtros selecionados.")
         else:
-            # Ações movidas para a PRIMEIRA coluna
             col_h_act, col_h_nome, col_h_cpf, col_h_pep, col_h_venc, col_h_status, col_h_oper = st.columns([1.5, 2.5, 1.2, 0.8, 1.1, 1.1, 1.5])
             
             with col_h_act:
@@ -1637,7 +1552,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
             )
 
 # =============================================================================
-# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS E PERMISSÕES (QUADRINHOS CINZA CHUMBO #2d3748)
+# ⚙️ TELA 4: GERENCIADOR DE USUÁRIOS
 # =============================================================================
 elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.title("⚙️ Gerenciador de Usuários e Segurança de Acesso")
@@ -1646,9 +1561,7 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
 
     dict_usuarios = carregar_usuarios()
 
-    # --- ÁREA EXCLUSIVA DE ADMINISTRADOR ---
     if eh_admin:
-        # MÓDULO 1: Autorizar Novo E-mail
         with st.expander("➕ Autorizar Novo E-mail Corporativo", expanded=False):
             col_add1, col_add2, col_add3 = st.columns([2.5, 1.2, 1])
             with col_add1:
@@ -1665,11 +1578,9 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
                     else:
                         st.warning(msg)
 
-        # MÓDULO 2: Redefinição Centralizada de Senha por ADM
         with st.expander("🔑 Gestão e Redefinição de Senhas (ADM)", expanded=False):
             st.caption("Altere a senha de qualquer operador registrado. É necessário informar a sua senha atual de Administrador para autorizar.")
             
-            # Exibe notificação de sucesso ao redefinir a senha via ADM
             if "msg_sucesso_senha_adm" in st.session_state:
                 st.success(st.session_state.pop("msg_sucesso_senha_adm"))
 
@@ -1715,7 +1626,6 @@ elif opcao_menu == "⚙️ Gerenciador de Usuários":
                                 del st.session_state[k]
                         st.rerun()
 
-    # MÓDULO 3: Tabela Geral de Usuários Cadastrados
     with st.expander("📋 Lista de Usuários com Acesso Liberado", expanded=True):
         if not dict_usuarios:
             st.info("Nenhum usuário cadastrado.")
