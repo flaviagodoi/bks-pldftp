@@ -819,16 +819,26 @@ if "senha_hash_logada" not in st.session_state:
     st.session_state.senha_hash_logada = None
 if "login_email_confirmado" not in st.session_state:
     st.session_state.login_email_confirmado = None
+if "item_renovar_ativo" not in st.session_state:
+    st.session_state.item_renovar_ativo = None
 
-# JANELA MODAL DE RENOVAÇÃO DIRETA
-@st.dialog("🔄 Renovação Rápida de Laudo PLD/FTP")
-def abrir_modal_renovacao(nome, cpf):
-    st.write(f"Você está renovando o laudo de: **{nome}**")
-    st.write(f"CPF: **{formatar_cpf_estetico(cpf)}**")
+# DIÁLOGO DE RENOVAÇÃO COM PROCESSAMENTO NATIVO E EMISSÃO DE PDF
+@st.dialog("🔄 Renovação Oficial de Laudo PLD/FTP")
+def exibir_modal_renovacao():
+    item = st.session_state.item_renovar_ativo
+    if not item:
+        st.error("Erro ao carregar dados do laudo.")
+        return
+
+    nome = item["Nome Completo"]
+    cpf = item["CPF_Real"]
+    
+    st.write(f"**Pesquisado:** {nome.upper()}")
+    st.write(f"**CPF:** {formatar_cpf_estetico(cpf)}")
     st.markdown("---")
     
-    if st.button("🚀 Confirmar e Gerar Novo Laudo", type="primary", use_container_width=True):
-        with st.spinner("Revalidando dados nas bases públicas..."):
+    if st.button("🚀 Revalidar e Atualizar Vencimento", type="primary", use_container_width=True):
+        with st.spinner("Processando revalidação no banco do Supabase..."):
             res_pep = verificar_pep_completo(nome, cpf)
             tz_bsb = timezone(timedelta(hours=-3))
             agora_dt = datetime.now(tz_bsb)
@@ -848,7 +858,9 @@ def abrir_modal_renovacao(nome, cpf):
                 data_emissao_dt=agora_dt,
                 data_vencimento_str=prox_atualizacao
             )
-            st.success("✅ Laudo renovado com sucesso e prazo estendido no sistema!")
+            
+            st.session_state.item_renovar_ativo = None
+            st.success(f"✅ Laudo revalidado com sucesso! Nova data de vencimento: **{prox_atualizacao}**")
             st.rerun()
 
 if st.session_state.autenticado:
@@ -1075,7 +1087,7 @@ with st.sidebar:
         st.caption("""
             **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
             
-            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitutional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
+            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitucional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
             2. **Armazenamento Seguro:** O histórico de laudos e vencimentos é mantido em banco de dados corporativo criptografado (Supabase via SSL/TLS), sem armazenamento temporário em máquinas operacionais.
             3. **Minimização de Riscos:** As exibições públicas utilizam mascaramento parcial de CPF (`123.***.***-89`), reduzindo a exposição em conformidade com as diretrizes da ANPD.
             4. **Confidencialidade:** Os dados pesquisados destinam-se exclusivamente ao respaldo regulatório corporativo, sendo vedada a comercialização ou compartilhamento não autorizado.
@@ -1088,6 +1100,7 @@ with st.sidebar:
         st.session_state.email_logado = None
         st.session_state.senha_hash_logada = None
         st.session_state.login_email_confirmado = None
+        st.session_state.item_renovar_ativo = None
         st.rerun()
 
     st.markdown("<br><hr style='margin-top:15px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
@@ -1445,6 +1458,10 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
     st.caption("Acompanhamento contínuo dos prazos de renovação e governança regulatória.")
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # DISPARA A JANELA MODAL SE UM ITEM FOI SELECIONADO
+    if st.session_state.item_renovar_ativo:
+        exibir_modal_renovacao()
+
     registros = carregar_vencimentos()
 
     if not registros:
@@ -1596,9 +1613,10 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     with st.popover("⚡ Opções", use_container_width=True):
                         st.caption(f"Registro: **{item['Nome Completo']}**")
                         
-                        # RENOVAÇÃO DIRETA E SEGURA VIA JANELA MODAL ISOLADA
+                        # GRAVA O ITEM EM MEMÓRIA E DISPARA O DIÁLOGONATIVO
                         if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
-                            abrir_modal_renovacao(item["Nome Completo"], item["CPF_Real"])
+                            st.session_state.item_renovar_ativo = item
+                            st.rerun()
                         
                         if st.button("🚫 Encerrar / Excluir Registro", key=f"pop_encerrar_{idx}", use_container_width=True):
                             ok_del, msg_del = remover_vencimento(item["CPF_Real"])
