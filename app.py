@@ -488,7 +488,9 @@ BASE_PEP_NATIVA = {
         "cargo": "Agente Político / Exposição Direta (Ex-Vice-Prefeito de Fortaleza / Suplente de Senador)",
         "orgao": "Administração Pública / Poder Executivo",
         "detalhe": "Histórico Mapeado de Notória Exposição e Função Pública Direta",
-        "origem": "Base de Notória Exposição Pública e Função Pública"
+        "origem": "Base de Notória Exposição Pública e Função Pública",
+        "cidade": "Fortaleza",
+        "estado": "CE"
     },
     "GAUDENCIO GONCALVES DE LUCENA JUNIOR": {
         "tipo": "FAMILIAR",
@@ -498,7 +500,9 @@ BASE_PEP_NATIVA = {
         "cargo": "Vínculo Familiar de 1º Grau (Junior de Agente Político Exposto: Ex-Vice-Prefeito / Suplente)",
         "orgao": "Administração Pública (Vínculo Familiar de 1º Grau)",
         "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto (Gaudêncio Lucena)",
-        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Gaudêncio Lucena)"
+        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Gaudêncio Lucena)",
+        "cidade": "Fortaleza",
+        "estado": "CE"
     },
     "SHIGEAKI MARACAJA RAMOS": {
         "tipo": "FAMILIAR",
@@ -508,7 +512,9 @@ BASE_PEP_NATIVA = {
         "cargo": "Vínculo Familiar de 1º Grau (Filho de Agente Político Exposto: Vice-Prefeita de São João do Cariri)",
         "orgao": "Administração Pública / Poder Executivo Municipal",
         "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto (Estela Maracajá)",
-        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Estela Maracajá)"
+        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Estela Maracajá)",
+        "cidade": "São João do Cariri",
+        "estado": "PB"
     }
 }
 
@@ -571,7 +577,6 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
                         if miolo_cpf_input not in cpf_row_numeros:
                             continue
 
-                    # EXTRAÇÃO EXATA: Coluna D (Descrição Função) e Coluna F (Nome Órgão)
                     cargo = (row.get('Descrição_Função') or row.get('DESCRICAO_FUNCAO') or 
                              row.get('DS_FUNCAO') or row.get('Função') or row.get('Cargo') or "Agente Político / Função Pública")
                     
@@ -581,7 +586,9 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
                     return {
                         "cargo": str(cargo).strip(),
                         "orgao": str(orgao).strip(),
-                        "detalhe": f"Registro Oficial na Base da CGU ({caminho_final})"
+                        "detalhe": f"Registro Oficial na Base da CGU ({caminho_final})",
+                        "cidade": "Nacional",
+                        "estado": "BR"
                     }
     except Exception:
         pass
@@ -614,14 +621,14 @@ def buscar_na_planilha_tse(nome_input):
                     
                     if any(st_ok in sit_tot for st_ok in status_eleito_validos):
                         cargo = row.get('DS_CARGO') or "Agente Político Eleito"
-                        municipio = row.get('NM_UE') or "Município Desconhecido"
+                        municipio = row.get('NM_UE') or "Município Não Informado"
                         estado = row.get('SG_UF') or "BR"
                         
                         return {
-                            "cargo": f"Agente Político Eleito - {cargo} ({municipio} - {estado})",
+                            "cargo": str(cargo).strip().title(),
                             "orgao": f"Prefeitura / Câmara Municipal de {municipio} ({estado})",
                             "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {municipio}/{estado})",
-                            "municipio": municipio,
+                            "cidade": municipio,
                             "estado": estado
                         }
     except Exception:
@@ -699,7 +706,9 @@ def buscar_web_tripla_fonte(nome, cpf=""):
             "cargo": f"Agente Político / Exposição Direta ({cargo_identificado})",
             "orgao": "Administração Pública / Registro Público Web",
             "detalhe": f"Confirmado em 3 fontes públicas independentes na Web ({', '.join(fontes_encontradas)})",
-            "origem": "Tríplice Validação de Fontes Públicas Web"
+            "origem": "Tríplice Validação de Fontes Públicas Web",
+            "cidade": "Informação Web",
+            "estado": "BR"
         }
 
     return None
@@ -722,20 +731,24 @@ def verificar_pep_completo(nome_input, cpf_input):
             "cargo": match_cgu["cargo"],
             "orgao": match_cgu["orgao"],
             "detalhe": "Cadastro Ativo na Base Oficial do Governo Federal (CGU)",
-            "origem": f"Base Oficial de PEPs ({match_cgu['detalhe']})"
+            "origem": f"Base Oficial de PEPs ({match_cgu['detalhe']})",
+            "cidade": match_cgu.get("cidade", "Nacional"),
+            "estado": match_cgu.get("estado", "BR")
         }
 
     # 2. Base Oficial do TSE (Cargo + Cidade + Estado)
     match_tse = buscar_na_planilha_tse(nome_limpo)
     if match_tse:
-        texto_confirma_tse = buscar_web_tripla_fonte(f"{nome_limpo} {match_tse['municipio']}", cpf_input)
+        texto_confirma_tse = buscar_web_tripla_fonte(f"{nome_limpo} {match_tse['cidade']}", cpf_input)
         if texto_confirma_tse or len(nome_norm.split()) >= 3:
             return {
                 "tipo": "DIRETO",
                 "cargo": match_tse["cargo"],
                 "orgao": match_tse["orgao"],
                 "detalhe": match_tse["detalhe"],
-                "origem": "Base Oficial do Tribunal Superior Eleitoral (TSE)"
+                "origem": "Base Oficial do Tribunal Superior Eleitoral (TSE)",
+                "cidade": match_tse["cidade"],
+                "estado": match_tse["estado"]
             }
 
     # 3. Varredura Web com Trava de 3 Fontes
@@ -1100,10 +1113,12 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                             PEP_VINCULO = "INDIRETO"
                             RELACAO_2GRAU = "Relacionamento próximo"
 
-                        CARGOS_EXERCIDOS = res_pep["cargo"]
-                        ORGAO_ENTIDADE = res_pep["orgao"]
-                        DETALHE_EXPOSICAO = res_pep["detalhe"]
-                        ORIGEM_IDENTIFICACAO = res_pep["origem"]
+                        CARGOS_EXERCIDOS = res_pep.get("cargo", "Cargo Não Informado")
+                        ORGAO_ENTIDADE = res_pep.get("orgao", "Órgão Não Informado")
+                        CIDADE_EXPOSICAO = res_pep.get("cidade", "Nacional")
+                        ESTADO_EXPOSICAO = res_pep.get("estado", "BR")
+                        DETALHE_EXPOSICAO = res_pep.get("detalhe", "Identificado em Base Oficial")
+                        ORIGEM_IDENTIFICACAO = res_pep.get("origem", "Base Oficial de Transparência")
                         RISCO_FINAL = "ALTO RISCO"
                         PRAZO_RENOVAÇÃO = "06 MESES"
                         APONTAMENTOS = f"RESTRIÇÃO: Exposição ativa ou vínculo de parentesco com PEP ({ORIGEM_IDENTIFICACAO})"
@@ -1117,6 +1132,8 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         RELACAO_2GRAU = "Sem vínculos mapeados"
                         CARGOS_EXERCIDOS = "Nenhum cargo público detectado"
                         ORGAO_ENTIDADE = "Sem vínculo identificado"
+                        CIDADE_EXPOSICAO = "-"
+                        ESTADO_EXPOSICAO = "-"
                         DETALHE_EXPOSICAO = "Sem histórico de exposição pública registrado"
                         ORIGEM_IDENTIFICACAO = "Bases Oficiais (CGU / TSE) e Pesquisa Web"
                         RISCO_FINAL = "BAIXO"
@@ -1137,7 +1154,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
 
                     st.markdown("---")
                     if res_pep:
-                        st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA ({'PEP DIRETO' if res_pep['tipo']=='DIRETO' else 'PEP INDIRETO / VÍNCULO FAMILIAR'})** | Cargo: {CARGOS_EXERCIDOS} | Órgão: {ORGAO_ENTIDADE}")
+                        st.error(f"🔴 **RESULTADO: PESSOA POLITICAMENTE EXPOSTA ({'PEP DIRETO' if res_pep['tipo']=='DIRETO' else 'PEP INDIRETO / VÍNCULO FAMILIAR'})** | Cargo: {CARGOS_EXERCIDOS} | Órgão: {ORGAO_ENTIDADE} | Local: {CIDADE_EXPOSICAO}/{ESTADO_EXPOSICAO}")
                     else:
                         st.success("🟢 **RESULTADO: NADA CONSTA (NÃO É PEP)**")
 
@@ -1161,26 +1178,39 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
 
                     def format_val(key, text):
                         u = text.strip().upper()
+                        # Formata com fundo colorido APENAS status de risco ativos
                         if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO', 'RELACAO_2GRAU', 'PEP_VINCULO']:
-                            bg_col = "#28a745"
                             if u in ['SIM', 'INDIRETO', 'SIM - INDIRETO', 'ALTO RISCO', '06 MESES', 'RELACIONAMENTO PRÓXIMO', 'RELACIONAMENTO PROXIMO', 'SINALIZADO']:
                                 bg_col = "#dc3545"
-                            elif u in ['MÉDIO RISCO']:
-                                bg_col = "#ffc107"
-
-                            txt_p = Paragraph(text, style_badge_txt)
-                            calc_w = max(len(text) * 6.5, 45)
-                            t_badge = Table([[txt_p]], colWidths=[calc_w])
-                            t_badge.setStyle(TableStyle([
-                                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor(bg_col)),
-                                ('TOPPADDING', (0,0), (-1,-1), 2.5),
-                                ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
-                                ('LEFTPADDING', (0,0), (-1,-1), 4),
-                                ('RIGHTPADDING', (0,0), (-1,-1), 4),
-                                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ]))
-                            return t_badge
+                                txt_p = Paragraph(text, style_badge_txt)
+                                calc_w = max(len(text) * 6.5, 45)
+                                t_badge = Table([[txt_p]], colWidths=[calc_w])
+                                t_badge.setStyle(TableStyle([
+                                    ('BACKGROUND', (0,0), (-1,-1), colors.HexColor(bg_col)),
+                                    ('TOPPADDING', (0,0), (-1,-1), 2.5),
+                                    ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+                                    ('LEFTPADDING', (0,0), (-1,-1), 4),
+                                    ('RIGHTPADDING', (0,0), (-1,-1), 4),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                                ]))
+                                return t_badge
+                            elif u in ['BAIXO', '01 ANO']:
+                                bg_col = "#28a745"
+                                txt_p = Paragraph(text, style_badge_txt)
+                                calc_w = max(len(text) * 6.5, 45)
+                                t_badge = Table([[txt_p]], colWidths=[calc_w])
+                                t_badge.setStyle(TableStyle([
+                                    ('BACKGROUND', (0,0), (-1,-1), colors.HexColor(bg_col)),
+                                    ('TOPPADDING', (0,0), (-1,-1), 2.5),
+                                    ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+                                    ('LEFTPADDING', (0,0), (-1,-1), 4),
+                                    ('RIGHTPADDING', (0,0), (-1,-1), 4),
+                                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                                ]))
+                                return t_badge
+                        # NADA CONSTA e textos neutros ficam sem fundo colorido
                         return Paragraph(text, style_val)
 
                     def load_proportional_img(path, target_h=65):
@@ -1287,11 +1317,14 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
                     ])
 
+                    # SEÇÃO 2 COM DETALHAMENTO DE CARGO, CIDADE, ESTADO E ÓRGÃO
                     make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
                         ("STATUS PEP DIRETO", STATUS_PEP_DIRETO, "STATUS_PEP"),
                         ("STATUS POR VÍNCULO", PEP_VINCULO, "PEP_VINCULO"),
+                        ("CARGO EXERCIDO", CARGOS_EXERCIDOS),
                         ("ÓRGÃO / ENTIDADE DE ATUAÇÃO", ORGAO_ENTIDADE),
-                        ("ENQUADRAMENTO DO CARGO", DETALHE_EXPOSICAO)
+                        ("CIDADE / MUNICÍPIO", CIDADE_EXPOSICAO),
+                        ("ESTADO (UF)", ESTADO_EXPOSICAO)
                     ])
 
                     make_sec("3. MAPEAMENTO DE VÍNCULOS FAMILIARES E EMPRESARIAIS", [
