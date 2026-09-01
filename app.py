@@ -522,10 +522,17 @@ def identificar_arquivo_pep():
 
 @st.cache_data(show_spinner=False)
 def identificar_arquivo_tse():
-    """Localiza o arquivo da planilha de candidatos do TSE."""
+    """Localiza o arquivo da planilha de candidatos do TSE com busca ultra-flexível."""
     for arq in ["tse_candidatos.csv", "tse_candidatos.txt", "consulta_cand_2024_BRASIL.csv"]:
         if os.path.exists(arq):
             return arq
+    try:
+        for arq in os.listdir("."):
+            nome_baixo = arq.lower()
+            if ("tse" in nome_baixo or "candidato" in nome_baixo) and (nome_baixo.endswith(".csv") or nome_baixo.endswith(".txt")):
+                return arq
+    except Exception:
+        pass
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
