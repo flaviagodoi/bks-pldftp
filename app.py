@@ -485,8 +485,8 @@ BASE_PEP_NATIVA = {
     "GAUDENCIO GONCALVES DE LUCENA": {
         "tipo": "DIRETO",
         "cpf_conhecido": "03429628334",
-        "cargo": "Agente Político / Exposição Direta (Ex-Vice-Prefeito de Fortaleza / Suplente de Senador)",
-        "orgao": "Administração Pública / Poder Executivo",
+        "cargo": "Ex-Vice-Prefeito / Suplente de Senador",
+        "orgao": "Prefeitura Municipal / Senado Federal",
         "detalhe": "Histórico Mapeado de Notória Exposição e Função Pública Direta",
         "origem": "Base de Notória Exposição Pública e Função Pública",
         "cidade": "Fortaleza",
@@ -497,10 +497,10 @@ BASE_PEP_NATIVA = {
         "sufixo": "JUNIOR",
         "cpf_conhecido": "66632935320",
         "nome_parente": "Gaudêncio Gonçalves de Lucena",
-        "cargo": "Vínculo Familiar de 1º Grau (Junior de Agente Político Exposto: Ex-Vice-Prefeito / Suplente)",
-        "orgao": "Administração Pública (Vínculo Familiar de 1º Grau)",
-        "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto (Gaudêncio Lucena)",
-        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Gaudêncio Lucena)",
+        "cargo": "Vínculo Familiar de 1º Grau (Junior de Agente Político Exposto)",
+        "orgao": "Administração Pública (Vínculo Familiar)",
+        "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto",
+        "origem": "Mapeamento de Parentesco em Fontes Públicas",
         "cidade": "Fortaleza",
         "estado": "CE"
     },
@@ -509,10 +509,10 @@ BASE_PEP_NATIVA = {
         "sufixo": "PARENTESCO",
         "cpf_conhecido": "02409509410",
         "nome_parente": "Estela Maracajá Ramos",
-        "cargo": "Vínculo Familiar de 1º Grau (Filho de Agente Político Exposto: Vice-Prefeita de São João do Cariri)",
-        "orgao": "Administração Pública / Poder Executivo Municipal",
-        "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto (Estela Maracajá)",
-        "origem": "Mapeamento de Parentesco de 1º Grau em Fontes Públicas (Estela Maracajá)",
+        "cargo": "Vínculo Familiar de 1º Grau (Filho de Vice-Prefeita)",
+        "orgao": "Prefeitura Municipal de São João do Cariri",
+        "detalhe": "Mapeamento Regulatório de Parentesco de 1º Grau com Agente Político Exposto",
+        "origem": "Mapeamento de Parentesco em Fontes Públicas",
         "cidade": "São João do Cariri",
         "estado": "PB"
     }
@@ -542,7 +542,7 @@ def identificar_arquivo_tse():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """Busca estrita na CGU extraindo Função (Coluna D) e Órgão (Coluna F)."""
+    """Busca estrita na CGU extraindo Função e Órgão com nomes de colunas flexíveis."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -562,31 +562,28 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
             reader = csv.DictReader(f, delimiter=sep)
             for row in reader:
-                nome_pep_row = (row.get('Nome_PEP') or row.get('NOME_PEP') or 
-                                row.get('Nome') or row.get('NOME') or row.get('Nome_Pessoa') or "")
-                
-                nome_pep_norm = normalizar_texto(nome_pep_row)
+                row_clean = {normalizar_texto(k): str(v).strip() for k, v in row.items() if k}
 
-                if nome_norm == nome_pep_norm:
-                    cpf_row = (row.get('CPF') or row.get('Cpf') or row.get('CPF_PEP') or 
-                               row.get('CPF_PESSOA') or row.get('Cpf_Pessoa') or "")
-                    
+                nome_pep_row = (row_clean.get('nome_pep') or row_clean.get('nome') or row_clean.get('nome_pessoa') or "")
+                
+                if nome_norm == normalizar_texto(nome_pep_row):
+                    cpf_row = (row_clean.get('cpf') or row_clean.get('cpf_pep') or row_clean.get('cpf_pessoa') or "")
                     cpf_row_numeros = re.sub(r'\D', '', cpf_row)
 
                     if miolo_cpf_input and len(cpf_row_numeros) >= 6:
                         if miolo_cpf_input not in cpf_row_numeros:
                             continue
 
-                    cargo = (row.get('Descrição_Função') or row.get('DESCRICAO_FUNCAO') or 
-                             row.get('DS_FUNCAO') or row.get('Função') or row.get('Cargo') or "Agente Político / Função Pública")
+                    cargo = (row_clean.get('descricao_funcao') or row_clean.get('ds_funcao') or 
+                             row_clean.get('funcao') or row_clean.get('cargo') or "Função Pública Registrada (CGU)")
                     
-                    orgao = (row.get('Nome_Órgão') or row.get('NOME_ORGAO') or 
-                             row.get('Órgão') or row.get('Orgao') or row.get('ORGAO_LOTACAO') or "Administração Pública (CGU)")
+                    orgao = (row_clean.get('nome_orgao') or row_clean.get('orgao') or 
+                             row_clean.get('orgao_lotacao') or row_clean.get('co_orgao_matriz') or "Órgão Público Federal (CGU)")
 
                     return {
-                        "cargo": str(cargo).strip(),
-                        "orgao": str(orgao).strip(),
-                        "detalhe": f"Registro Oficial na Base da CGU ({caminho_final})",
+                        "cargo": cargo.title(),
+                        "orgao": orgao.title(),
+                        "detalhe": f"Registro Ativo na Base Oficial da CGU ({caminho_final})",
                         "cidade": "Nacional",
                         "estado": "BR"
                     }
@@ -596,7 +593,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
     return None
 
 def buscar_na_planilha_tse(nome_input):
-    """Busca ultra-flexível no TSE para garantir extração de Cargo, Cidade e Estado independentemente das minúsculas do cabeçalho."""
+    """Busca no TSE capturando Cargo, Cidade, Estado e Órgão."""
     caminho_tse = identificar_arquivo_tse()
     if not caminho_tse:
         return None
@@ -615,7 +612,6 @@ def buscar_na_planilha_tse(nome_input):
 
             reader = csv.DictReader(f, delimiter=sep)
             for row in reader:
-                # Normalização de Chaves do Dicionário
                 row_clean = {normalizar_texto(k): str(v).strip() for k, v in row.items() if k}
 
                 nome_cand = (row_clean.get("nm_candidato") or row_clean.get("nome_candidato") or 
@@ -625,7 +621,6 @@ def buscar_na_planilha_tse(nome_input):
                     sit_tot = (row_clean.get("ds_sit_tot_turno") or row_clean.get("ds_situacao_candidatura") or 
                                row_clean.get("situacao") or "").upper()
                     
-                    # Filtra apenas se for ELEITO ou se a coluna não existir (caso o filtro já tenha sido feito no Excel)
                     if not sit_tot or any(st_ok in sit_tot for st_ok in status_eleito_validos):
                         cargo = (row_clean.get("ds_cargo") or row_clean.get("cargo") or "Agente Político Eleito")
                         municipio = (row_clean.get("nm_ue") or row_clean.get("municipio") or row_clean.get("cidade") or "Município Não Informado")
@@ -644,7 +639,7 @@ def buscar_na_planilha_tse(nome_input):
     return None
 
 def buscar_web_tripla_fonte(nome, cpf=""):
-    """Exige NO MÍNIMO 3 FONTES DISTINTAS com confirmação de CPF/Cidade para sinalizar PEP."""
+    """Exige NO MÍNIMO 3 FONTES DISTINTAS para sinalizar PEP via Web."""
     nome_limpo = nome.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
@@ -710,7 +705,7 @@ def buscar_web_tripla_fonte(nome, cpf=""):
     if len(fontes_encontradas) >= 3 and cargo_identificado:
         return {
             "tipo": "DIRETO",
-            "cargo": f"Agente Político / Exposição Direta ({cargo_identificado})",
+            "cargo": f"Agente Político Exposto ({cargo_identificado})",
             "orgao": "Administração Pública / Registro Público Web",
             "detalhe": f"Confirmado em 3 fontes públicas independentes na Web ({', '.join(fontes_encontradas)})",
             "origem": "Tríplice Validação de Fontes Públicas Web",
@@ -721,16 +716,30 @@ def buscar_web_tripla_fonte(nome, cpf=""):
     return None
 
 def verificar_pep_completo(nome_input, cpf_input):
-    """Mecanismo de Tripla Camada (CGU + TSE + Web 3 Fontes)."""
+    """Mecanismo de Tripla Camada dando PRIORIDADE AO TSE para resgatar Cidade e Estado."""
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
+    # 1. Checa a Base Nativa de Mapeamento Direto
     nome_chave_upper = nome_norm.upper()
     for chave_nat, dados_nat in BASE_PEP_NATIVA.items():
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
-    # 1. Base Oficial da CGU (Função na Coluna D + Órgão na Coluna F)
+    # 2. PRIORIDADE 1: Base Oficial do TSE (Para trazer Cargo + Cidade + Estado Específicos)
+    match_tse = buscar_na_planilha_tse(nome_limpo)
+    if match_tse:
+        return {
+            "tipo": "DIRETO",
+            "cargo": match_tse["cargo"],
+            "orgao": match_tse["orgao"],
+            "detalhe": match_tse["detalhe"],
+            "origem": "Base Oficial do Tribunal Superior Eleitoral (TSE)",
+            "cidade": match_tse["cidade"],
+            "estado": match_tse["estado"]
+        }
+
+    # 3. PRIORIDADE 2: Base Oficial da CGU
     match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_cgu:
         return {
@@ -743,22 +752,7 @@ def verificar_pep_completo(nome_input, cpf_input):
             "estado": match_cgu.get("estado", "BR")
         }
 
-    # 2. Base Oficial do TSE (Cargo + Cidade + Estado)
-    match_tse = buscar_na_planilha_tse(nome_limpo)
-    if match_tse:
-        texto_confirma_tse = buscar_web_tripla_fonte(f"{nome_limpo} {match_tse['cidade']}", cpf_input)
-        if texto_confirma_tse or len(nome_norm.split()) >= 3:
-            return {
-                "tipo": "DIRETO",
-                "cargo": match_tse["cargo"],
-                "orgao": match_tse["orgao"],
-                "detalhe": match_tse["detalhe"],
-                "origem": "Base Oficial do Tribunal Superior Eleitoral (TSE)",
-                "cidade": match_tse["cidade"],
-                "estado": match_tse["estado"]
-            }
-
-    # 3. Varredura Web com Trava de 3 Fontes
+    # 4. PRIORIDADE 3: Varredura Web de Segurança
     match_web = buscar_web_tripla_fonte(nome_limpo, cpf_input)
     if match_web:
         return match_web
@@ -820,7 +814,7 @@ if not st.session_state.autenticado:
     with col_l2:
         st.markdown("<br>", unsafe_allow_html=True)
         
-        bks_b64 = obter_base64_imagem("logo_bks.png")
+        bks_b64 = obtaining_base64_imagem("logo_bks.png") if 'obtaining_base64_imagem' in globals() else obter_base64_imagem("logo_bks.png")
         bksre_b64 = obter_base64_imagem("logo_bksre.png")
         
         img_bks_html = f'<img src="data:image/png;base64,{bks_b64}" style="height: 75px; max-width: 220px; object-fit: contain;">' if bks_b64 else '<span style="font-weight:bold; font-size:16px; color:#0056b3;">BKS CORRETORA</span>'
@@ -1323,7 +1317,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
                     ])
 
-                    # SEÇÃO 2 COM DETALHAMENTO DINÂMICO DE CARGO, CIDADE, ESTADO E ÓRGÃO
+                    # SEÇÃO 2 COM DETALHAMENTO COMPLETO DE CARGO, CIDADE, ESTADO E ÓRGÃO
                     make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
                         ("STATUS PEP DIRETO", STATUS_PEP_DIRETO, "STATUS_PEP"),
                         ("STATUS POR VÍNCULO", PEP_VINCULO, "PEP_VINCULO"),
