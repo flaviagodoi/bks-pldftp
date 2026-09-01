@@ -542,7 +542,7 @@ def identificar_arquivo_tse():
     return None
 
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """Busca estrita na CGU extraindo Função e Órgão com nomes de colunas flexíveis."""
+    """Busca estrita na CGU extraindo Função e Órgão."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -593,7 +593,7 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
     return None
 
 def buscar_na_planilha_tse(nome_input, cpf_input=""):
-    """Busca ultra-flexível no TSE por Nome ou CPF, capturando Cargo, Cidade, Estado e Órgão."""
+    """Busca ultra-permissiva na planilha do TSE com varredura inteligente de colunas."""
     caminho_tse = identificar_arquivo_tse()
     if not caminho_tse:
         return None
@@ -601,42 +601,61 @@ def buscar_na_planilha_tse(nome_input, cpf_input=""):
     nome_norm = normalizar_texto(nome_input)
     cpf_num = re.sub(r'\D', '', str(cpf_input)) if cpf_input else ""
 
-    status_eleito_validos = ["ELEITO", "ELEITO POR QP", "ELEITO POR MEDIA", "2O TURNO"]
-
     try:
         with open(caminho_tse, mode='r', encoding='utf-8', errors='ignore') as f:
             primeira_linha = f.readline()
             sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
             f.seek(0)
 
-            reader = csv.DictReader(f, delimiter=sep)
-            for row in reader:
-                row_clean = {normalizar_texto(k): str(v).strip() for k, v in row.items() if k}
+            reader = csv.reader(f, delimiter=sep)
+            cabecalho = [normalizar_texto(col) for col in next(reader, [])]
 
-                nome_cand = (row_clean.get("nm_candidato") or row_clean.get("nome_candidato") or 
-                             row_clean.get("nm_urna_candidato") or row_clean.get("nome") or "")
-                
-                cpf_cand = re.sub(r'\D', '', row_clean.get("nr_cpf_candidato") or row_clean.get("cpf") or "")
+            # Identificação das Posições das Colunas por Palavras-Chave
+            idx_nome = -1
+            idx_cargo = -1
+            idx_cidade = -1
+            idx_estado = -1
+            idx_cpf = -1
 
-                match_nome = (nome_norm and normalizar_texto(nome_cand) == nome_norm)
-                match_cpf = (cpf_num and cpf_cand and cpf_num == cpf_cand)
+            for i, col in enumerate(cabecalho):
+                if any(k in col for k in ["candidato", "nome", "nm_cand"]):
+                    if idx_nome == -1: idx_nome = i
+                if any(k in col for k in ["cargo", "ds_cargo"]):
+                    idx_cargo = i
+                if any(k in col for k in ["municipio", "cidade", "nm_ue", "ue"]):
+                    idx_cidade = i
+                if any(k in col for k in ["uf", "estado", "sg_uf"]):
+                    idx_estado = i
+                if any(k in col for k in ["cpf", "nr_cpf"]):
+                    idx_cpf = i
+
+            # Se não achou a coluna do nome pelo cabeçalho, assume a primeira coluna (índice 0)
+            if idx_nome == -1:
+                idx_nome = 0
+
+            # Varredura das Linhas do CSV
+            for linha in reader:
+                if not linha:
+                    continue
+
+                val_nome = normalizar_texto(linha[idx_nome]) if len(linha) > idx_nome else ""
+                val_cpf = re.sub(r'\D', '', linha[idx_cpf]) if (idx_cpf != -1 and len(linha) > idx_cpf) else ""
+
+                match_nome = (nome_norm and val_nome == nome_norm)
+                match_cpf = (cpf_num and val_cpf and cpf_num == val_cpf)
 
                 if match_nome or match_cpf:
-                    sit_tot = (row_clean.get("ds_sit_tot_turno") or row_clean.get("ds_situacao_candidatura") or 
-                               row_clean.get("situacao") or "").upper()
-                    
-                    if not sit_tot or any(st_ok in sit_tot for st_ok in status_eleito_validos):
-                        cargo = (row_clean.get("ds_cargo") or row_clean.get("cargo") or "Agente Político Eleito")
-                        municipio = (row_clean.get("nm_ue") or row_clean.get("municipio") or row_clean.get("cidade") or "Município Não Informado")
-                        estado = (row_clean.get("sg_uf") or row_clean.get("uf") or row_clean.get("estado") or "BR")
-                        
-                        return {
-                            "cargo": cargo.title(),
-                            "orgao": f"Prefeitura / Câmara Municipal de {municipio.title()} ({estado.upper()})",
-                            "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {municipio.title()}/{estado.upper()})",
-                            "cidade": municipio.title(),
-                            "estado": estado.upper()
-                        }
+                    cargo_txt = linha[idx_cargo].strip().title() if (idx_cargo != -1 and len(linha) > idx_cargo) else "Agente Político Eleito"
+                    cidade_txt = linha[idx_cidade].strip().title() if (idx_cidade != -1 and len(linha) > idx_cidade) else "Município Não Informado"
+                    estado_txt = linha[idx_estado].strip().upper() if (idx_estado != -1 and len(linha) > idx_estado) else "BR"
+
+                    return {
+                        "cargo": cargo_txt,
+                        "orgao": f"Prefeitura / Câmara Municipal de {cidade_txt} ({estado_txt})",
+                        "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {cidade_txt}/{estado_txt})",
+                        "cidade": cidade_txt,
+                        "estado": estado_txt
+                    }
     except Exception:
         pass
 
@@ -730,13 +749,8 @@ def verificar_pep_completo(nome_input, cpf_input):
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
-    # 2. Varredura na Base Oficial da CGU
-    match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
-
-    # 3. Varredura na Base Oficial do TSE (Busca por Nome e CPF)
+    # 2. Varredura no TSE por Nome ou CPF
     match_tse = buscar_na_planilha_tse(nome_limpo, cpf_input)
-
-    # Fusão Inteligente: Se achou no TSE, aproveita os dados ricos de Cidade/Estado do TSE
     if match_tse:
         return {
             "tipo": "DIRETO",
@@ -748,6 +762,8 @@ def verificar_pep_completo(nome_input, cpf_input):
             "estado": match_tse["estado"]
         }
 
+    # 3. Varredura na CGU
+    match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_cgu:
         return {
             "tipo": "DIRETO",
@@ -1013,7 +1029,7 @@ with st.sidebar:
         st.caption("""
             **Política de Tratamento de Dados Pessoais & Governança (LGPD - Lei 13.709/18, EC 115/22 e Normas ANPD/SUSEP/COAF):**
             
-            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitutional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
+            1. **Finalidade Legal:** As análises e consultas são realizadas estritamente para cumprimento de obrigação legal de Prevenção à Lavagem de Dinheiro e Combate ao Financiamento do Terrorismo (PLD/FTP - Resoluções SUSEP/COAF) e proteção constitucional de dados (Art. 5º, LXXIX da CF/88 e Art. 7º, II e X da LGPD).
             2. **Armazenamento Seguro:** O histórico de laudos e vencimentos é mantido em banco de dados corporativo criptografado (Supabase via SSL/TLS), sem armazenamento temporário em máquinas operacionais.
             3. **Minimização de Riscos:** As exibições públicas utilizam mascaramento parcial de CPF (`123.***.***-89`), reduzindo a exposição em conformidade com as diretrizes da ANPD.
             4. **Confidencialidade:** Os dados pesquisados destinam-se exclusivamente ao respaldo regulatório corporativo, sendo vedada a comercialização ou compartilhamento não autorizado.
@@ -1186,7 +1202,6 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
 
                     def format_val(key, text):
                         u = text.strip().upper()
-                        # Formata com fundo colorido APENAS status de risco ativos
                         if key in ['STATUS_PEP', 'RISCO_FINAL', 'PRAZO_RENOVAÇÃO', 'RELACAO_2GRAU', 'PEP_VINCULO']:
                             if u in ['SIM', 'INDIRETO', 'SIM - INDIRETO', 'ALTO RISCO', '06 MESES', 'RELACIONAMENTO PRÓXIMO', 'RELACIONAMENTO PROXIMO', 'SINALIZADO']:
                                 bg_col = "#dc3545"
@@ -1324,7 +1339,6 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         ("CARGO / EXPOSIÇÃO", CARGOS_EXERCIDOS)
                     ])
 
-                    # SEÇÃO 2 COM DETALHAMENTO COMPLETO DE CARGO, CIDADE, ESTADO E ÓRGÃO
                     make_sec("2. CLASSIFICAÇÃO DE RISCO E DETALHES DO CARGO PÚBLICO", [
                         ("STATUS PEP DIRETO", STATUS_PEP_DIRETO, "STATUS_PEP"),
                         ("STATUS POR VÍNCULO", PEP_VINCULO, "PEP_VINCULO"),
@@ -1605,7 +1619,7 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
 # =============================================================================
 elif opcao_menu == "⚙️ Gerenciador de Usuários":
     st.title("⚙️ Gerenciador de Usuários e Segurança de Acesso")
-    st.caption("Painel de controle de autorizações, perfis de operador e gestão centralizada de senhas.")
+    st.caption("Painel de controle de autorizaciones, perfis de operador e gestão centralizada de senhas.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     dict_usuarios = carregar_usuarios()
