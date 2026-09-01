@@ -823,6 +823,8 @@ if "renovar_nome" not in st.session_state:
     st.session_state.renovar_nome = ""
 if "renovar_cpf" not in st.session_state:
     st.session_state.renovar_cpf = ""
+if "opcao_menu_selecionada" not in st.session_state:
+    st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
 
 if st.session_state.autenticado:
     st.markdown("""
@@ -1022,7 +1024,13 @@ with st.sidebar:
         "⚙️ Gerenciador de Usuários"
     ]
 
-    opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=0)
+    # Garante a navegação dinâmica ao clicar em "Renovar Laudo"
+    idx_menu_def = 0
+    if st.session_state.opcao_menu_selecionada in opcoes_menu:
+        idx_menu_def = opcoes_menu.index(st.session_state.opcao_menu_selecionada)
+
+    opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=idx_menu_def, key="nav_radio_menu")
+    st.session_state.opcao_menu_selecionada = opcao_menu
     st.markdown("---")
     
     # --- BLOCO DETALHADO DAS BASES LOCAIS DA CGU E TSE (ELEIÇÕES MUNICIPAIS 2024) ---
@@ -1118,6 +1126,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
+    # Dispara automaticamente quando preenchido via botão "Renovar Laudo"
     if btn_pesquisar or (st.session_state.renovar_nome and st.session_state.renovar_cpf):
         st.session_state.renovar_nome = ""
         st.session_state.renovar_cpf = ""
@@ -1576,9 +1585,12 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                 with c_act:
                     with st.popover("⚡ Opções", use_container_width=True):
                         st.caption(f"Registro: **{item['Nome Completo']}**")
+                        
+                        # REDIRECIONAMENTO E PREENCHIMENTO AUTOMÁTICO PARA RENOVAÇÃO DE LAUDO
                         if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
                             st.session_state.renovar_nome = item["Nome Completo"]
                             st.session_state.renovar_cpf = item["CPF_Real"]
+                            st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
                             st.rerun()
                         
                         if st.button("🚫 Encerrar / Excluir Registro", key=f"pop_encerrar_{idx}", use_container_width=True):
