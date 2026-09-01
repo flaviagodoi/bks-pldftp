@@ -811,12 +811,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Captura os Parâmetros da URL caso o usuário tenha clicado em "Renovar Laudo"
-qp = st.query_params
-nome_url = qp.get("nome", "")
-cpf_url = qp.get("cpf", "")
-auto_exec_url = qp.get("auto", "0") == "1"
-
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "email_logado" not in st.session_state:
@@ -825,6 +819,12 @@ if "senha_hash_logada" not in st.session_state:
     st.session_state.senha_hash_logada = None
 if "login_email_confirmado" not in st.session_state:
     st.session_state.login_email_confirmado = None
+if "renovar_nome" not in st.session_state:
+    st.session_state.renovar_nome = ""
+if "renovar_cpf" not in st.session_state:
+    st.session_state.renovar_cpf = ""
+if "opcao_menu_selecionada" not in st.session_state:
+    st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
 
 if st.session_state.autenticado:
     st.markdown("""
@@ -1024,10 +1024,13 @@ with st.sidebar:
         "⚙️ Gerenciador de Usuários"
     ]
 
-    # Se veio do botão renovar via URL, seleciona a aba de consulta automaticamente
-    idx_menu_def = 1 if auto_exec_url else 0
+    # Garante a sincronia da seleção no menu
+    idx_menu_def = 0
+    if st.session_state.opcao_menu_selecionada in opcoes_menu:
+        idx_menu_def = opcoes_menu.index(st.session_state.opcao_menu_selecionada)
 
     opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=idx_menu_def, key="nav_radio_menu")
+    st.session_state.opcao_menu_selecionada = opcao_menu
     st.markdown("---")
     
     # --- BLOCO DETALHADO DAS BASES LOCAIS DA CGU E TSE (ELEIÇÕES MUNICIPAIS 2024) ---
@@ -1066,7 +1069,8 @@ with st.sidebar:
         st.session_state.email_logado = None
         st.session_state.senha_hash_logada = None
         st.session_state.login_email_confirmado = None
-        st.query_params.clear()
+        st.session_state.renovar_nome = ""
+        st.session_state.renovar_cpf = ""
         st.rerun()
 
     st.markdown("<br><hr style='margin-top:15px; margin-bottom:15px; border: 0.5px solid #e1e4e8;'>", unsafe_allow_html=True)
@@ -1108,9 +1112,8 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
     st.caption("Pesquisa automatizada em portais de transparência e bases públicas para enquadramento regulatório.")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Lê diretamente dos parâmetros da URL caso seja uma renovação
-    val_nome_def = nome_url if nome_url else ""
-    val_cpf_def = formatar_cpf_estetico(cpf_url) if cpf_url else ""
+    val_nome_def = st.session_state.get("renovar_nome", "")
+    val_cpf_def = formatar_cpf_estetico(st.session_state.get("renovar_cpf", "")) if st.session_state.get("renovar_cpf", "") else ""
 
     with st.container():
         st.markdown("### 📋 Dados do Pesquisado")
@@ -1123,9 +1126,10 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
         st.markdown("<br>", unsafe_allow_html=True)
         btn_pesquisar = st.button("🔎 Iniciar Consulta e Gerar Relatório PDF", type="primary", use_container_width=True)
 
-    if btn_pesquisar or auto_exec_url:
-        if auto_exec_url:
-            st.query_params.clear()
+    if btn_pesquisar:
+        # Limpa os dados em memória para evitar reaproveitamento acidental futuro
+        st.session_state.renovar_nome = ""
+        st.session_state.renovar_cpf = ""
         
         cpf_valido_bool = validar_cpf(cpf_input)
         cpf_formatado_input = formatar_cpf_estetico(cpf_input)
@@ -1582,11 +1586,11 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     with st.popover("⚡ Opções", use_container_width=True):
                         st.caption(f"Registro: **{item['Nome Completo']}**")
                         
-                        # REDIRECIONAMENTO LIMPO E DIRETO VIA PARÂMETROS DA URL
+                        # REDIRECIONAMENTO LIMPO: GRAVA OS DADOS E NAVEGA PARA A TELA DE CONSULTA
                         if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
-                            st.query_params["nome"] = item["Nome Completo"]
-                            st.query_params["cpf"] = item["CPF_Real"]
-                            st.query_params["auto"] = "1"
+                            st.session_state.renovar_nome = item["Nome Completo"]
+                            st.session_state.renovar_cpf = item["CPF_Real"]
+                            st.session_state.opcao_menu_selecionada = "🔍 Consulta PLD/FTP"
                             st.rerun()
                         
                         if st.button("🚫 Encerrar / Excluir Registro", key=f"pop_encerrar_{idx}", use_container_width=True):
