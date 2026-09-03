@@ -2,7 +2,6 @@ import streamlit as st
 import io, os, re, unicodedata, requests, csv, hashlib, base64
 from datetime import datetime, timezone, timedelta
 from PIL import Image as PILImage
-from duckduckgo_search import DDGS
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import NullPool
 
@@ -479,7 +478,7 @@ def carregar_vencimentos():
     return registros
 
 # -----------------------------------------------------------------------------
-# 🛠️ MECANISMO DE BUSCA AVANÇADO (CGU + TSE + WIKIPÉDIA / WEB COM 3 FONTES)
+# 🛠️ MECANISMO DE BUSCA OFICIAL (SOMENTE BASE CGU E NATIVA)
 # -----------------------------------------------------------------------------
 BASE_PEP_NATIVA = {
     "GAUDENCIO GONCALVES DE LUCENA": {
@@ -526,23 +525,8 @@ def identificar_arquivo_pep():
             return arq
     return None
 
-@st.cache_data(show_spinner=False)
-def identificar_arquivo_tse():
-    """Localiza o arquivo da planilha de candidatos do TSE com busca ultra-flexível."""
-    for arq in ["tse_candidatos.csv", "tse_candidatos.txt", "consulta_cand_2024_BRASIL.csv"]:
-        if os.path.exists(arq):
-            return arq
-    try:
-        for arq in os.listdir("."):
-            nome_baixo = arq.lower()
-            if ("tse" in nome_baixo or "candidato" in nome_baixo) and (nome_baixo.endswith(".csv") or nome_baixo.endswith(".txt")):
-                return arq
-    except Exception:
-        pass
-    return None
-
 def buscar_na_planilha_pep(nome_input, cpf_input):
-    """Busca estrita na CGU extraindo Função e Órgão com nomes de colunas flexíveis."""
+    """Busca estrita e segura na planilha oficial da CGU."""
     caminho_final = identificar_arquivo_pep()
     if not caminho_final:
         return None
@@ -592,173 +576,8 @@ def buscar_na_planilha_pep(nome_input, cpf_input):
 
     return None
 
-def buscar_na_planilha_tse(nome_input, cpf_input=""):
-    """Busca ultra-permissiva na planilha do TSE com varredura tolerante de colunas e enquadramentos de codificação."""
-    caminho_tse = identificar_arquivo_tse()
-    if not caminho_tse:
-        return None
-
-    nome_norm = normalizar_texto(nome_input)
-    cpf_num = re.sub(r'\D', '', str(cpf_input)) if cpf_input else ""
-
-    reparos = {
-        "ç": "c", "â": "a", "ã": "a", "á": "a", "é": "e", "ê": "e", 
-        "í": "i", "ó": "o", "ô": "o", "ú": "u", "µ": "a", "€": "c"
-    }
-
-    encodings_teste = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
-
-    for enc in encodings_teste:
-        try:
-            with open(caminho_tse, mode='r', encoding=enc, errors='replace') as f:
-                primeira_linha = f.readline()
-                sep = ';' if ';' in primeira_linha else (',' if ',' in primeira_linha else '\t')
-                f.seek(0)
-
-                reader = csv.reader(f, delimiter=sep)
-                cabecalho_raw = next(reader, [])
-                cabecalho = [normalizar_texto(col) for col in cabecalho_raw]
-
-                idx_nome = -1
-                idx_cargo = -1
-                idx_cidade = -1
-                idx_estado = -1
-                idx_cpf = -1
-
-                for i, col in enumerate(cabecalho):
-                    if any(k in col for k in ["candidato", "nome", "nm_cand"]):
-                        if idx_nome == -1: idx_nome = i
-                    if any(k in col for k in ["cargo", "ds_cargo"]):
-                        idx_cargo = i
-                    if any(k in col for k in ["municipio", "cidade", "nm_ue", "ue"]):
-                        idx_cidade = i
-                    if any(k in col for k in ["uf", "estado", "sg_uf"]):
-                        idx_estado = i
-                    if any(k in col for k in ["cpf", "nr_cpf"]):
-                        idx_cpf = i
-
-                if idx_nome == -1:
-                    idx_nome = 0
-
-                for linha in reader:
-                    if not linha:
-                        continue
-
-                    val_nome_raw = linha[idx_nome].lower()
-                    for k_rep, v_rep in reparos.items():
-                        val_nome_raw = val_nome_raw.replace(k_rep, v_rep)
-                    
-                    val_nome = normalizar_texto(val_nome_raw)
-                    val_cpf = re.sub(r'\D', '', linha[idx_cpf]) if (idx_cpf != -1 and len(linha) > idx_cpf) else ""
-
-                    match_nome = False
-                    if nome_norm and val_nome:
-                        if nome_norm == val_nome:
-                            match_nome = True
-                        else:
-                            p_busca = set([w for w in nome_norm.split() if len(w) > 2])
-                            p_arq = set([w for w in val_nome.split() if len(w) > 2])
-                            if p_busca and p_busca.issubset(p_arq):
-                                match_nome = True
-
-                    match_cpf = (cpf_num and val_cpf and cpf_num == val_cpf)
-
-                    if match_nome or match_cpf:
-                        cargo_txt = linha[idx_cargo].strip().title() if (idx_cargo != -1 and len(linha) > idx_cargo) else "Agente Político Eleito"
-                        cidade_txt = linha[idx_cidade].strip().title() if (idx_cidade != -1 and len(linha) > idx_cidade) else "Município Não Informado"
-                        estado_txt = linha[idx_estado].strip().upper() if (idx_estado != -1 and len(linha) > idx_estado) else "BR"
-
-                        return {
-                            "cargo": cargo_txt,
-                            "orgao": f"Prefeitura / Câmara Municipal de {cidade_txt} ({estado_txt})",
-                            "detalhe": f"Candidatura Eleita Confirmada no TSE (Eleições 2024 - {cidade_txt}/{estado_txt})",
-                            "cidade": cidade_txt,
-                            "estado": estado_txt
-                        }
-        except Exception:
-            continue
-
-    return None
-
-def buscar_web_tripla_fonte(nome, cpf=""):
-    """Exige NO MÍNIMO 3 FONTES DISTINTAS para sinalizar PEP via Web."""
-    nome_limpo = nome.strip()
-    nome_norm = normalizar_texto(nome_limpo)
-    
-    cpf_limpo = re.sub(r'\D', '', str(cpf))
-
-    queries = [
-        f'"{nome_limpo}" "{cpf_limpo}"',
-        f'"{nome_limpo}" "{formatar_cpf_estetico(cpf_limpo)}"',
-        f'"{nome_limpo}" politico OR prefeita OR prefeito OR vice OR secretario'
-    ]
-
-    fontes_encontradas = set()
-    cargo_identificado = None
-
-    cargos_pep = [
-        "senador", "senadora", "deputado", "deputada", "governador", "governadora", 
-        "prefeito", "prefeita", "vice prefeito", "vice prefeita", "ministro", "ministra", 
-        "desembargador", "desembargadora", "juiz", "juiza", "secretario", "secretaria"
-    ]
-
-    for q in queries:
-        try:
-            url_wiki = "https://pt.wikipedia.org/w/api.php"
-            params = {"action": "query", "list": "search", "srsearch": q, "format": "json"}
-            res = requests.get(url_wiki, params=params, timeout=3).json()
-            hits = res.get("query", {}).get("search", [])
-            for h in hits[:2]:
-                txt = normalizar_texto(h.get('snippet', ''))
-                for cg in cargos_pep:
-                    if cg in txt:
-                        fontes_encontradas.add("Wikipedia")
-                        cargo_identificado = cg.title()
-        except Exception:
-            pass
-
-        try:
-            url_ddg = "https://html.duckduckgo.com/html/"
-            headers = {"User-Agent": "Mozilla/5.0"}
-            resp = requests.post(url_ddg, data={"q": q}, headers=headers, timeout=3)
-            if resp.status_code == 200:
-                snips = re.findall(r'class="result__snippet[^">]*">(.*?)</a>', resp.text, re.DOTALL)
-                for s in snips:
-                    txt = normalizar_texto(s)
-                    for cg in cargos_pep:
-                        if cg in txt:
-                            fontes_encontradas.add("DuckDuckGo_Noticias")
-                            cargo_identificado = cg.title()
-        except Exception:
-            pass
-
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(q, max_results=3))
-                for r in results:
-                    txt = normalizar_texto(f"{r.get('title','')} {r.get('body','')}")
-                    for cg in cargos_pep:
-                        if cg in txt:
-                            fontes_encontradas.add("Portais_Publicos_Web")
-                            cargo_identificado = cg.title()
-        except Exception:
-            pass
-
-    if len(fontes_encontradas) >= 3 and cargo_identificado:
-        return {
-            "tipo": "DIRETO",
-            "cargo": f"Agente Político Exposto ({cargo_identificado})",
-            "orgao": "Administração Pública / Registro Público Web",
-            "detalhe": f"Confirmado em 3 fontes públicas independentes na Web ({', '.join(fontes_encontradas)})",
-            "origem": "Tríplice Validação de Fontes Públicas Web",
-            "cidade": "Informação Web",
-            "estado": "BR"
-        }
-
-    return None
-
 def verificar_pep_completo(nome_input, cpf_input):
-    """Mecanismo de Tripla Camada consultando a CGU e o TSE."""
+    """Consulta exclusiva na Base da CGU e Mapeamento Nativo (Web desativada)."""
     nome_limpo = nome_input.strip()
     nome_norm = normalizar_texto(nome_limpo)
     
@@ -768,20 +587,7 @@ def verificar_pep_completo(nome_input, cpf_input):
         if normalizar_texto(chave_nat).upper() == nome_chave_upper:
             return dados_nat
 
-    # 2. Varredura no TSE por Nome ou CPF
-    match_tse = buscar_na_planilha_tse(nome_limpo, cpf_input)
-    if match_tse:
-        return {
-            "tipo": "DIRETO",
-            "cargo": match_tse["cargo"],
-            "orgao": match_tse["orgao"],
-            "detalhe": match_tse["detalhe"],
-            "origem": "Base Oficial do Tribunal Superior Eleitoral (TSE)",
-            "cidade": match_tse["cidade"],
-            "estado": match_tse["estado"]
-        }
-
-    # 3. Varredura na CGU
+    # 2. Consulta Exclusiva na Base Oficial da CGU
     match_cgu = buscar_na_planilha_pep(nome_limpo, cpf_input)
     if match_cgu:
         return {
@@ -793,11 +599,6 @@ def verificar_pep_completo(nome_input, cpf_input):
             "cidade": match_cgu.get("cidade", "Nacional"),
             "estado": match_cgu.get("estado", "BR")
         }
-
-    # 4. Varredura Web de Segurança
-    match_web = buscar_web_tripla_fonte(nome_limpo, cpf_input)
-    if match_web:
-        return match_web
 
     return None
 
@@ -830,9 +631,9 @@ def gerar_pdf_bytes(nome_input, cpf_input, res_pep, agora_dt, PROXIMA_ATUALIZACA
         ESTADO_EXPOSICAO = "-"
         RISCO_FINAL = "BAIXO"
         PRAZO_RENOVAÇÃO = "01 ANO"
-        APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta nas bases oficiais nem nos portais de transparência"
+        APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta na base oficial da CGU"
         PERFIL_OP = "Profissional Independente"
-        PARECER = "Consulta realizada nas bases oficiais de transparência (CGU e TSE) e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
+        PARECER = "Consulta realizada na base oficial de transparência (CGU). Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=45)
@@ -1324,22 +1125,17 @@ with st.sidebar:
     opcao_menu = st.radio("📌 Menu de Navegação:", opcoes_menu, index=0)
     st.markdown("---")
     
-    # --- BLOCO DETALHADO DAS BASES LOCAIS DA CGU E TSE (ELEIÇÕES MUNICIPAIS 2024) ---
+    # --- BLOCO DETALHADO DA BASE LOCAL DA CGU ---
     arq_pep = identificar_arquivo_pep()
-    arq_tse = identificar_arquivo_tse()
     
     if arq_pep:
         st.success("📁 **Base PEP Oficial (CGU):** Ativa")
         st.caption("🗓️ *Atualizada: 14/08/2026*")
         st.caption("🏛️ *Fonte: Controladoria Geral da União*")
     else:
-        st.info("🌐 **Base PEP (CGU):** Modo Web Ativo")
+        st.info("🌐 **Base PEP (CGU):** Modo Local Desativado")
 
-    if arq_tse:
-        st.success("🗳️ **Consulta Candidatos Eleitos (TSE 2024):** Ativa")
-        st.caption("⚖️ *Fonte: Tribunal Superior Eleitoral (Eleições Municipais 2024)*")
-    else:
-        st.caption("🗳️ *Base TSE 2024: Não carregada localmente*")
+    st.caption("🔒 *Modo Estrito: Consultas exclusivas via CGU (Web e TSE pausados por 30 dias)*")
 
     st.markdown("---")
 
@@ -1400,7 +1196,7 @@ if opcao_menu == "🏛️ Consultas Receita Federal (PF/PJ)":
 # =============================================================================
 elif opcao_menu == "🔍 Consulta PLD/FTP":
     st.title("🛡️ Painel Oficial de Consulta PLD/FTP")
-    st.caption("Pesquisa automatizada em portais de transparência e bases públicas para enquadramento regulatório.")
+    st.caption("Pesquisa automatizada na base oficial da CGU para enquadramento regulatório.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.container():
@@ -1428,7 +1224,7 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
             if not coerente:
                 st.error(f"❌ **Incompatibilidade de Dados Identificada:**\n\n{msg_erro_coerencia}\n\n*Por segurança regulatória, a emissão do laudo foi suspensa para evitar cadastro de CPF incorreto.*")
             else:
-                with st.spinner("🔎 Consultando base oficial e realizando varredura de governança..."):
+                with st.spinner("🔎 Consultando base oficial da CGU..."):
                     
                     nome_limpo = nome_input.strip()
                     res_pep = verificar_pep_completo(nome_limpo, cpf_input)
@@ -1471,12 +1267,12 @@ elif opcao_menu == "🔍 Consulta PLD/FTP":
                         CIDADE_EXPOSICAO = "-"
                         ESTADO_EXPOSICAO = "-"
                         DETALHE_EXPOSICAO = "Sem histórico de exposição pública registrado"
-                        ORIGEM_IDENTIFICACAO = "Bases Oficiais (CGU / TSE) e Pesquisa Web"
+                        ORIGEM_IDENTIFICACAO = "Base Oficial da CGU"
                         RISCO_FINAL = "BAIXO"
                         PRAZO_RENOVAÇÃO = "01 ANO"
-                        APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta nas bases oficiais nem nos portais de transparência"
+                        APONTAMENTOS = "SEM RESTRIÇÕES: Nada consta na base oficial da CGU"
                         PERFIL_OP = "Profissional Independente"
-                        PARECER = "Consulta realizada nas bases oficiais de transparência (CGU e TSE) e portais públicos. Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
+                        PARECER = "Consulta realizada na base oficial de transparência (CGU). Não foram identificados cargos políticos ativos nem histórico de exposição pública para o Nome e CPF informados."
                         PROXIMA_ATUALIZACAO = (agora_dt + timedelta(days=365)).strftime('%d/%m/%Y')
 
                     registrar_vencimento(
@@ -1519,7 +1315,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
     st.caption("Acompanhamento contínuo dos prazos de renovação e governança regulatória.")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ABRE O DIÁLOGO DE RENOVAÇÃO SE HOUVER UM ITEM SELECIONADO
     if st.session_state.item_renovar_ativo:
         exibir_modal_renovacao()
 
@@ -1674,7 +1469,6 @@ elif opcao_menu == "📊 Gestão de Vencimentos":
                     with st.popover("⚡ Opções", use_container_width=True):
                         st.caption(f"Registro: **{item['Nome Completo']}**")
                         
-                        # ABRE O DIÁLOGO ZERANDO O BUFFER ANTERIOR
                         if st.button("🔄 Renovar Laudo", key=f"pop_renovar_{idx}", use_container_width=True):
                             st.session_state.item_renovar_ativo = item
                             st.session_state.pdf_renovado_bytes = None
