@@ -33,11 +33,10 @@ def obter_base64_imagem(caminho_imagem):
 # -----------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def obter_conexao_banco():
-    """Retorna a conexão garantindo o driver psycopg2 para evitar o erro de import_dbapi."""
+    """Retorna e mantém em cache a conexão do SQLAlchemy garantindo o driver psycopg2."""
     if "DATABASE_URL" in st.secrets:
         db_url = st.secrets["DATABASE_URL"]
         
-        # Converte o protocolo da URL para forçar psycopg2
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
         elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
